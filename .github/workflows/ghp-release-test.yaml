@@ -73,11 +73,11 @@ jobs:
           yarn install
           yarn run build
 
-      # 6. Deploy to GH Pages under /version-N/
-      - name: Deploy to GitHub Pages
+      # 6. Deploy to GH Pages
+      - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
-          github_token:   ${{ secrets.GITHUB_TOKEN }}
-          publish_dir:    ./out
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          destination_dir: version-${{ steps.version.outputs.next_version }}
+          publish_dir: ./out
+          force_orphan: true
