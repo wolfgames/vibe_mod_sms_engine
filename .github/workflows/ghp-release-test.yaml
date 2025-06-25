@@ -45,18 +45,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const branch = '${{ steps.version.outputs.branch }}';
-            // get SHA of main
-            const { data: mainRef } = await github.git.getRef({
+
+            // 1) Get the SHA of main
+            const { data: mainRef } = await github.rest.git.getRef({
               owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'heads/main'
+              repo:  context.repo.repo,
+              ref:   'heads/main'
             });
-            // create new branch
-            await github.git.createRef({
+
+            // 2) Create the new branch
+            await github.rest.git.createRef({
               owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/heads/${branch}`,
-              sha: mainRef.object.sha
+              repo:  context.repo.repo,
+              ref:   `refs/heads/${branch}`,
+              sha:   mainRef.object.sha
             });
 
       # 4. Checkout that newly-created branch
