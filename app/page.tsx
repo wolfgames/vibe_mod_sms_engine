@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Component } from '../game/component'
+import Component from '../game/component'
 import { ModuleConfiguration } from '../game/configuration'
 import { ModuleOperation } from '../game/operation'
 import { ModuleResult, ModuleResultType, ModuleReplayAbility, ModuleIntegrationType, OperationHandle } from '../game/types'

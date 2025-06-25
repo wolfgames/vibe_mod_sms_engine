@@ -8,9 +8,9 @@ enum ModuleResultType {
  * @param {ModuleConfiguration} configuration
  * @param {ModuleResult} result
  */
-globalThis.resultInterpretation = (
-  configuration,
-  result,
+export const resultInterpretation = (
+  configuration: any, // temporary any types
+  result: any,
 ): Array<string> => {
   if (result.type === ModuleResultType.Attempt) {
     return [configuration.resultAction];

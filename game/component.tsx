@@ -9,7 +9,7 @@ type Props = {
   ready: () => void;
 }
 
-export const Component: FC<Props> = forwardRef<OperationHandle<ModuleOperation>, Props>(({ config, result, ready }, ref) => {
+const Component = forwardRef<OperationHandle<ModuleOperation>, Props>(({ config, result, ready }, ref) => {
   useImperativeHandle(ref, () => ({
     onOperation: () => {},
     onCancel: () => {},
@@ -46,3 +46,5 @@ export const Component: FC<Props> = forwardRef<OperationHandle<ModuleOperation>,
 
   return <p>Hello World</p>;
 });
+
+export default Component;
