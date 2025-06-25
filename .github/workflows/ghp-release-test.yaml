@@ -70,8 +70,8 @@ jobs:
       # 5. Build your React app
       - name: Install & build
         run: |
-          npm ci
-          npm run build
+          yarn install
+          yarn run build
 
       # 6. Deploy to GH Pages under /version-N/
       - name: Deploy to GitHub Pages
