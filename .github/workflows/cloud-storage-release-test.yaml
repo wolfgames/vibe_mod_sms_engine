@@ -1,0 +1,81 @@
+name: Create • Build • Deploy Version Branch → GCS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout main so we can list remote branches
+      - name: Checkout main (full history)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # 2. Compute next integer version & branch name
+      - name: Compute next version
+        id: version
+        run: |
+          versions=$(git ls-remote --heads origin 'refs/heads/version-*' \
+            | awk '{print $2}' \
+            | sed 's|refs/heads/version-||' \
+            | sort -n)
+          if [ -z "$versions" ]; then
+            next=1
+          else
+            max=$(echo "$versions" | tail -n1)
+            next=$((max + 1))
+          fi
+          echo "next_version=$next" >> $GITHUB_OUTPUT
+          echo "branch=version-$next" >> $GITHUB_OUTPUT
+
+      # 3. Create the new branch via GitHub API
+      - name: Create version branch
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branch = '${{ steps.version.outputs.branch }}';
+            // get SHA of main
+            const { data: mainRef } = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main'
+            });
+            // create new branch
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/heads/${branch}`,
+              sha: mainRef.object.sha
+            });
+
+      # 4. Checkout that newly-created branch
+      - name: Checkout version branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ steps.version.outputs.branch }}
+
+      # 5. Build your React app
+      - name: Install & build
+        run: |
+          yarn install
+          yarn run build
+
+      # 6. Authenticate to GCP
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id:          ${{ secrets.GCP_PROJECT_ID }}
+
+      # 7. Sync build output to GCS
+      - name: Deploy to Google Cloud Storage
+        run: |
+          # make the bucket path: gs://<BUCKET>/version-N/
+          gsutil -m rsync -r ./out gs://${{ secrets.GCP_BUCKET }}/version-${{ steps.version.outputs.next_version }}/
