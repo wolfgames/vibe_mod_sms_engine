@@ -1,44 +1,66 @@
 'use client'
 
-import { useRef } from 'react'
-import Component from '../game/component'
-import { ModuleConfiguration } from '../game/configuration'
-import { ModuleOperation } from '../game/operation'
-import { ModuleResult, ModuleResultType, ModuleReplayAbility, ModuleIntegrationType, OperationHandle } from '../game/types'
+import { useRouter } from "next/navigation"
+import { useCallback } from "react"
+import { getUrlWithConfig, ModuleReplayAbility, ModuleIntegrationType, ModuleResultType } from "module-kit"
+import { ConfigForm, type FormFieldConfig } from '@/components/ConfigForm'
+import configSchema, { type ModuleConfig, DEFAULT_CONFIG } from "@/game/configuration"
 
-// Example configuration - modify as needed
-const exampleConfig: ModuleConfiguration = {
-  resultAction: "example_action",
-  replayAbility: ModuleReplayAbility.RePlayable,
-  expectedResultType: ModuleResultType.Attempt,
-  integrationType: ModuleIntegrationType.Standalone,
-}
+export const FORM_FIELDS: FormFieldConfig[] = [
+  {
+    key: "resultAction",
+    label: "Module Result Action",
+    type: "select",
+    options: ["continue", "stop", "restart", "reset"],
+    required: true,
+  },
+  {
+    key: 'replayAbility',
+    label: 'Replay Ability',
+    type: 'select',
+    options: Object.values(ModuleReplayAbility) as string[],
+    required: true,
+  },
+  {
+    key: 'expectedResultType',
+    label: 'Expected Result Type',
+    type: 'select',
+    options: Object.values(ModuleResultType) as string[],
+    required: true,
+  },
+  {
+    key: 'integrationType',
+    label: 'Integration Type',
+    type: 'select',
+    options: Object.values(ModuleIntegrationType) as string[],
+    required: true,
+  },
+]
 
-export default function Home() {
-  const componentRef = useRef<OperationHandle<ModuleOperation>>(null)
+export default () => {
+  const router = useRouter()
+  const handleFormSubmit = useCallback((config: ModuleConfig, configString: string, signature: string) => {
+    console.log("Form submitted with config:", config)
 
-  const handleResult = (result: ModuleResult) => {
-    console.log('Module result:', result)
-    // Handle the result here
-  }
+    // Use modular URL utilities
+    const url = getUrlWithConfig(configString, signature)
 
-  const handleReady = () => {
-    console.log('Module is ready')
-  }
+    // Trigger re-processing by reloading
+    router.push('/game/?' + url.toString())
+  }, [])
 
   return (
     <main className="min-h-screen bg-gray-100">
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Module Demo</h1>
-        <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
-          <Component
-            ref={componentRef}
-            config={exampleConfig}
-            result={handleResult}
-            ready={handleReady}
-          />
-        </div>
-      </div>
+      <ConfigForm<ModuleConfig>
+        title="Configure Module"
+        description="No URL parameters found. Please configure your module settings below."
+        fields={FORM_FIELDS}
+        defaultValues={DEFAULT_CONFIG}
+        schema={configSchema}
+        onSubmit={handleFormSubmit}
+        submitButtonText="Create Module"
+        footerText="Powered by Zod + Module Kit 📦: This form uses Zod schema validation through the module-kit package for type-safe configuration validation."
+      />
     </main>
-  )
+  );
 }
