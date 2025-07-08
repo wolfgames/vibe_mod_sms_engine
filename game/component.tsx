@@ -1,50 +1,96 @@
-import { FC, forwardRef, useCallback, useEffect, useImperativeHandle } from 'react';
-import { ModuleResult, ModuleResultType, OperationHandle } from './types';
-import { ModuleConfiguration } from './configuration';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import { ChildModuleCommunicator, initModule, ModuleResult, ModuleResultType, OperationHandle } from 'module-kit';
+
+// region Frozen
+import moduleConfig, { type ModuleConfig } from './configuration';
 import { ModuleOperation } from './operation';
+import { originConfig } from './origins';
+import { interpretResult } from './result-interpretation';
+// endregion Frozen
 
-type Props = {
-  config: ModuleConfiguration;
-  result: (result: ModuleResult) => void;
-  ready: () => void;
-}
+const Component = forwardRef<OperationHandle<ModuleOperation>, {}>(({}, ref) => {
 
-const Component = forwardRef<OperationHandle<ModuleOperation>, Props>(({ config, result, ready }, ref) => {
+  // region Frozen
+  const [communicator, setCommunicator] = useState<ChildModuleCommunicator | null>(null);
+  const [resultHandler, setResultHandler] = useState<((result: ModuleResult) => void) | null>(null);
+  const [config, setConfig] = useState<ModuleConfig | null>(null);
+  const [moduleUid, setModuleUid] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const {
+        communicator,
+        resultHandler,
+        config
+      } = initModule({
+        window,
+        initCallback: (uid: string) => {
+          console.log('init', { uid })
+          setModuleUid(uid)
+        },
+        configSchema: moduleConfig,
+        interpretResult,
+        originConfig, 
+      });
+
+      communicator.sendReady();
+
+      setCommunicator(communicator);
+      setResultHandler(resultHandler);
+      setConfig(config);
+    }
+    catch (error) {
+      console.error('Error initializing module:', error);
+    }
+  }, []);
+  // endregion Frozen
+
   useImperativeHandle(ref, () => ({
     onOperation: () => {},
     onCancel: () => {},
     onAspectValueChange: () => {},
   }), []);
 
-  useEffect(() => {
-    ready();
-  }, [ready]);
-
   const reportExecutionResult = useCallback(() => {
+    if (!resultHandler || !config || !communicator) {
+      console.error(`${!resultHandler ? 'Result handler' : !config ? 'Config' : 'Communicator'} not initialized`);  
+      return;
+    }
+    
     if (config.expectedResultType === ModuleResultType.Attempt) {
-      result({
+      const data = resultHandler({
         type: ModuleResultType.Attempt,
-        data: { attemptStatus: "success" },
-      });
+        data: 1,
+      })
+      communicator.sendResult(data);
     }
 
     if (config.expectedResultType === ModuleResultType.Choice) {
-      result({
+      const data = resultHandler({
         type: ModuleResultType.Choice,
-        data: { choiceIndex: 0 },
-      });
+        data: 0,
+      })
+      communicator.sendResult(data);
     }
-  }, [config, result]);
+  }, [config, resultHandler]);
 
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      reportExecutionResult();
-    }, 1000);
-
-    return () => clearTimeout(timeout);
-  }, [reportExecutionResult]);
-
-  return <p>Hello World</p>;
+  return <div className="w-full h-full flex items-center justify-center">
+    {config ? (
+      <div className="text-center">
+        <h1 className="text-2xl font-bold mb-4">Module Template</h1>
+        <p className="text-lg mb-2">Module ID: {moduleUid}</p>
+        <p className="text-sm text-gray-500">Expected result type: {config.expectedResultType}</p>
+        <button
+          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          onClick={reportExecutionResult}
+        >
+          Report Execution Result
+        </button>
+      </div>
+    ) : (
+      <p>loading...</p>
+    )}
+  </div>;
 });
 
 export default Component;

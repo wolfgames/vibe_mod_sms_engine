@@ -1,22 +1,29 @@
-enum ModuleResultType {
-  Attempt = "attempt",
-  Choice = "choice",
+import type { ModuleConfig } from "./configuration"
+import type { AppActions } from './actions'
+import { ModuleResultType, ModuleResult, BaseActions } from 'module-kit'
+
+// region Frozen
+export interface BaseModuleResult {
+  type: ModuleResultType
+  data?: any
 }
 
-/**
- *
- * @param {ModuleConfiguration} configuration
- * @param {ModuleResult} result
- */
-export const resultInterpretation = (
-  configuration: any, // temporary any types
-  result: any,
-): Array<string> => {
-  if (result.type === ModuleResultType.Attempt) {
-    return [configuration.resultAction];
-  } else if (result.type === ModuleResultType.Choice) {
-    return [configuration.resultAction];
-  }
+export interface CustomModuleResult extends ModuleResult {
+  actions: AppActions[]
+}
+// endregion Frozen
 
-  throw new Error(`Unexpected result type ${result.type}. Valid module execution result types: ["${Object.values(ModuleResultType).join('","')}"]`);
+/**
+ * Result interpretation function
+ * Processes the module result and determines what actions should be taken
+ */
+export function interpretResult(
+  config: ModuleConfig,
+  result: BaseModuleResult,
+): CustomModuleResult {
+  return {
+    type: result.type,
+    data: result.data,
+    actions: [BaseActions.Done],
+  };
 };
