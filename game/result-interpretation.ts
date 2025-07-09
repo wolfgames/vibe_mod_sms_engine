@@ -3,13 +3,12 @@ import type { AppActions } from './actions'
 import { ModuleResultType, ModuleResult, BaseActions } from 'module-kit'
 
 // region Frozen
-export interface BaseModuleResult {
+// Result data to be sent to the parent
+// includes the data value, result type, & an array of action UIDs
+export interface CustomModuleResult {
+  data?: any,
+  actions: string[],
   type: ModuleResultType
-  data?: any
-}
-
-export interface CustomModuleResult extends ModuleResult {
-  actions: AppActions[]
 }
 // endregion Frozen
 
@@ -19,11 +18,35 @@ export interface CustomModuleResult extends ModuleResult {
  */
 export function interpretResult(
   config: ModuleConfig,
-  result: BaseModuleResult,
-): CustomModuleResult {
+  actions: Record<string, any>,
+  resultData: any,
+): ModuleResult {
+  // region Frozen
+
+  // Default action is "done"
+  // This will change based on how the module wants to handle its result
+  let actionToTrigger = BaseActions.Done
+
+  // endregion Frozen
+
+  // Example: 
+  // if (config.expectedResultType === ModuleResultType.Attempt) {
+  //   actionToTrigger = BaseActions.AnotherAction
+  // }
+
+  // region Frozen
+
+  const actionUid = actions?.[actionToTrigger];
+
+  if (!actionUid) {
+    throw new Error(`Action key "${actionToTrigger}" not found in config.actions map.`)
+  }
+
   return {
-    type: result.type,
-    data: result.data,
-    actions: [BaseActions.Done],
+    type: config.expectedResultType,
+    data: resultData,
+    actions: [actionUid]
   };
+  
+  // endregion Frozen
 };
