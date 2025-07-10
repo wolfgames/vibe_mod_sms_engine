@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BaseActions, type BaseActionsType } from 'module-kit';
+import { BaseActions, type BaseActionsType } from 'wolfy-module-kit';
 
 enum CustomActions {
   // add custom module actions here

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useCallback } from "react"
-import { getUrlWithConfig, ModuleReplayAbility, ModuleIntegrationType, ModuleResultType } from "module-kit"
+import { getUrlWithConfig, ModuleReplayAbility, ModuleIntegrationType, ModuleResultType } from 'wolfy-module-kit'
 import { ConfigForm, type FormFieldConfig } from '@/components/ConfigForm'
 import configSchema, { type ModuleConfig, DEFAULT_CONFIG } from "@/game/configuration"
 
@@ -39,7 +39,7 @@ export const FORM_FIELDS: FormFieldConfig[] = [
 
 export default () => {
   const router = useRouter()
-  const handleFormSubmit = useCallback((config: ModuleConfig, configString: string, signature: string) => {
+  const handleFormSubmit = useCallback((config: ModuleConfig, configString: string, signature: string = '') => {
     console.log("Form submitted with config:", config)
 
     // Use modular URL utilities

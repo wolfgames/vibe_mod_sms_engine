@@ -1,6 +1,6 @@
 "use client"
 
-import { encodeConfig, generateMockSignature, validateSchema } from "module-kit"
+import { encodeConfig, validateSchema } from 'wolfy-module-kit'
 import { ModuleConfig } from "@/game/configuration"
 import { useState } from "react"
 import { z } from "zod"
@@ -78,11 +78,10 @@ export function ConfigForm<T>({
 
       // Use utility functions passed as props
       const configString = encodeConfig(result.data)
-      const signature = generateMockSignature()
 
       console.log("Submitting config:", result.data)
 
-      onSubmit(result.data as T, configString, signature)
+      onSubmit(result.data as T, configString, '')
     } catch (error) {
       console.error("Form submission error:", error)
       setErrors({ _form: "An unexpected error occurred" })
@@ -208,14 +207,13 @@ export function ConfigForm<T>({
 
       // Use utility functions passed as props
       const configString = encodeConfig(result.data)
-      const signature = generateMockSignature()
+      // const signature = generateMockSignature()
 
       // Show success message briefly
-      const originalSubmitText = submitButtonText
       setIsSubmitting(true)
 
       // Call onSubmit with the default config
-      onSubmit(result.data as T, configString, signature)
+      onSubmit(result.data as T, configString, '')
     } catch (error) {
       console.error("Default config generation error:", error)
       setErrors({ _form: "Failed to generate default configuration" })

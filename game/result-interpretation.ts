@@ -1,6 +1,6 @@
 import type { ModuleConfig } from "./configuration"
 import type { AppActions } from './actions'
-import { ModuleResultType, ModuleResult, BaseActions } from 'module-kit'
+import { ModuleResultType, ModuleResult, BaseActions } from 'wolfy-module-kit'
 
 // region Frozen
 // Result data to be sent to the parent
@@ -47,6 +47,6 @@ export function interpretResult(
     data: resultData,
     actions: [actionUid]
   };
-  
+
   // endregion Frozen
 };

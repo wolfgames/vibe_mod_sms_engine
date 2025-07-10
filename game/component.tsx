@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
-import { ActionMap, ChildModuleCommunicator, initModule, ResultPayload, ModuleResultType, OperationHandle } from 'module-kit';
+import { ActionMap, ChildModuleCommunicator, initModule, ResultPayload, ModuleResultType, OperationHandle } from 'wolfy-module-kit';
 
 // region Frozen
 import moduleConfig, { type ModuleConfig } from './configuration';
@@ -17,6 +17,9 @@ const Component = forwardRef<OperationHandle<ModuleOperation>, {}>(({ }, ref) =>
   const [moduleUid, setModuleUid] = useState<string | null>(null)
   const [actions, setActions] = useState<ActionMap>()
 
+  useEffect(() => {
+    window.parent.postMessage('module-ready', { targetOrigin: '*' })
+  }, []);
 
   useEffect(() => {
     try {
