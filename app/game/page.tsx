@@ -1,6 +1,6 @@
 'use client'
 
-import Component from '@/game/component';
+import Component from '@/system/component';
 
 export default function Home() {
   return (

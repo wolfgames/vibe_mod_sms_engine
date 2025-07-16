@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation"
 import { useCallback } from "react"
 import { getUrlWithConfig, ModuleReplayAbility, ModuleIntegrationType, ModuleResultType } from 'wolfy-module-kit'
 import { ConfigForm, type FormFieldConfig } from '@/components/ConfigForm'
-import configSchema, { type ModuleConfig, DEFAULT_CONFIG } from "@/game/configuration"
+import configSchema, { type ModuleConfig, DEFAULT_CONFIG } from "@/system/configuration"
 
 export const FORM_FIELDS: FormFieldConfig[] = [
   {
