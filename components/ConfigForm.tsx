@@ -65,7 +65,6 @@ export function ConfigForm<T>({
 
       if (!result.success) {
         const errors = result.errors as Record<string, string>
-        console.log({errors})
         setErrors(errors)
         if (onValidationError) {
           onValidationError(errors)
