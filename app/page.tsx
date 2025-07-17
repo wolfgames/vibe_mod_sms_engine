@@ -40,7 +40,6 @@ export const FORM_FIELDS: FormFieldConfig[] = [
 export default () => {
   const router = useRouter()
   const handleFormSubmit = useCallback((config: ModuleConfig, configString: string, signature: string = '') => {
-    console.log("Form submitted with config:", config)
 
     // Use modular URL utilities
     const url = getUrlWithConfig(configString, signature)
