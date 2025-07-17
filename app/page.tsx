@@ -5,13 +5,14 @@ import { useCallback } from "react"
 import { getUrlWithConfig, ModuleReplayAbility, ModuleIntegrationType, ModuleResultType } from 'wolfy-module-kit'
 import { ConfigForm, type FormFieldConfig } from '@/components/ConfigForm'
 import configSchema, { type ModuleConfig, DEFAULT_CONFIG } from "@/system/configuration"
+import { AppActionsSchema } from "@/system/actions"
 
 export const FORM_FIELDS: FormFieldConfig[] = [
   {
     key: "resultAction",
     label: "Module Result Action",
     type: "select",
-    options: ["continue", "stop", "restart", "reset"],
+    options: [AppActionsSchema.enum.Done, AppActionsSchema.enum.CustomAction],
     required: true,
   },
   {
