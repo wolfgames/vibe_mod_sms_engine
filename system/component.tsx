@@ -63,7 +63,12 @@ const Component = forwardRef<OperationHandle<ModuleOperation>, {}>(({ }, ref) =>
 
   const reportExecutionResult = useCallback(() => {
     if (!resultHandler || !config || !communicator || !actions) {
-      console.error(`${!resultHandler ? 'Result handler' : !config ? 'Config' : 'Communicator'} not initialized`);
+      const missingComponents = [];
+      if (!resultHandler) missingComponents.push('Result handler');
+      if (!config) missingComponents.push('Config');
+      if (!communicator) missingComponents.push('Communicator');
+      if (!actions) missingComponents.push('Actions');
+      console.error(`The following components are not initialized: ${missingComponents.join(', ')}`);
       return;
     }
 
