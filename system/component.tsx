@@ -77,6 +77,16 @@ const Component = ({ }) => {
   }, [handleOperation, handleAspectUpdate]);
   // endregion Frozen
 
+  const requestAspectChange = useCallback((aspectToChange: string, valueToSet: any) => {
+    if (!moduleCommunicator || !aspectsPermissions) return;
+
+    if (aspectsPermissions[aspectToChange] === AspectPermissionType.ReadWrite) {
+      moduleCommunicator.requestAspectValueChange(aspectToChange, valueToSet);
+    } else {
+      console.log(`Module does not have write permission for aspect: ${aspectToChange}`);
+    }
+  }, [moduleCommunicator, aspectsPermissions]);
+
   const reportExecutionResult = useCallback(() => {
     if (!resultHandler || !config || !moduleCommunicator || !actions) {
       console.error(`${!resultHandler ? 'Result handler' : !config ? 'Config' : 'Communicator'} not initialized`);
@@ -112,6 +122,13 @@ const Component = ({ }) => {
           <h3 className="font-bold">Received Aspects:</h3>
           <pre>{JSON.stringify(aspects, null, 2)}</pre>
         </div>
+
+        <button
+          className="mt-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+          onClick={() => requestAspectChange('Viewed', (aspects.Viewed || 0) + 1)}
+        >
+          Request Aspect Change (Viewed +1)
+        </button>
 
         <button
           className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
