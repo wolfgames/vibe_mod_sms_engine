@@ -11,7 +11,7 @@ import { interpretResult } from './result-interpretation';
 const Component = ({ }) => {
 
   // region Frozen
-  const [communicator, setCommunicator] = useState<ChildModuleCommunicator | null>(null);
+  const [moduleCommunicator, setModuleCommunicator] = useState<ChildModuleCommunicator | null>(null);
   const [resultHandler, setResultHandler] = useState<((payload: ResultPayload<ModuleConfig>) => void) | null>(null);
   const [config, setConfig] = useState<ModuleConfig | null>(null);
   const [moduleUid, setModuleUid] = useState<string | null>(null)
@@ -38,13 +38,14 @@ const Component = ({ }) => {
 
   // region Frozen
   useEffect(() => {
+    let communicator: ChildModuleCommunicator | null = null;
     try {
       const initCallback = (uid: string, actions: ActionMap) => {
         setModuleUid(uid)
         setActions(actions)
       };
       const {
-        communicator,
+        communicator: effectCommunicator,
         resultHandler,
         config
       } = initModule({
@@ -55,12 +56,14 @@ const Component = ({ }) => {
         originConfig,
       });
 
+      communicator = effectCommunicator;
+
       communicator.onOperation(handleOperation);
       communicator.onAspectUpdate(handleAspectUpdate);
 
       communicator.sendReady();
 
-      setCommunicator(communicator);
+      setModuleCommunicator(communicator);
       setResultHandler(() => resultHandler);
       setConfig(config);
     }
@@ -75,7 +78,7 @@ const Component = ({ }) => {
   // endregion Frozen
 
   const reportExecutionResult = useCallback(() => {
-    if (!resultHandler || !config || !communicator || !actions) {
+    if (!resultHandler || !config || !moduleCommunicator || !actions) {
       console.error(`${!resultHandler ? 'Result handler' : !config ? 'Config' : 'Communicator'} not initialized`);
       return;
     }
@@ -95,7 +98,7 @@ const Component = ({ }) => {
         actions
       });
     }
-  }, [actions, config, resultHandler]);
+  }, [actions, config, resultHandler, moduleCommunicator]);
 
   return <div className="w-full h-full flex items-center justify-center">
     {config ? (
