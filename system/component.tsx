@@ -1,9 +1,9 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
-import { ActionMap, ChildModuleCommunicator, initModule, ResultPayload, ModuleResultType, OperationHandle } from 'wolfy-module-kit';
+import { useCallback, useEffect, useState } from 'react';
+import { ActionMap, ChildModuleCommunicator, initModule, ResultPayload, ModuleResultType, AspectPermissions, AspectPermissionType } from 'wolfy-module-kit';
 
 // region Frozen
 import moduleConfig, { type ModuleConfig } from './configuration';
-import { ModuleOperation } from './operation';
+import { ModuleOperation, ModuleOperationType } from './operation';
 import { originConfig } from './origins';
 import { interpretResult } from './result-interpretation';
 // endregion Frozen
@@ -15,7 +15,9 @@ const Component = ({ }) => {
   const [resultHandler, setResultHandler] = useState<((payload: ResultPayload<ModuleConfig>) => void) | null>(null);
   const [config, setConfig] = useState<ModuleConfig | null>(null);
   const [moduleUid, setModuleUid] = useState<string | null>(null)
-  const [actions, setActions] = useState<ActionMap>()
+  const [actions, setActions] = useState<ActionMap>({})
+  const [aspectsPermissions, setAspectsPermissions] = useState<AspectPermissions>({});
+  const [lastOperation, setLastOperation] = useState<ModuleOperation | null>(null);
   // endregion Frozen
 
   // state affected by operations
@@ -24,26 +26,47 @@ const Component = ({ }) => {
   // aspects record
   const [aspects, setAspects] = useState<Record<string, any>>({});
 
-  const handleAspectUpdate = useCallback((key: string, value: any) => {
-    setAspects(prev => ({ ...prev, [key]: value }));
-  }, []);
-
-  const handleOperation = useCallback((operation: ModuleOperation) => {
-    if (operation.type === 'SET_TITLE') {
-      setTitle(operation.value);
-    } else {
-      console.warn('Unknown operation type:', operation.type);
+  useEffect(() => {
+    if (!lastOperation) {
+      return;
     }
-  }, []);
+
+    // Custom operations logic
+    if (lastOperation.type === ModuleOperationType.SET_TITLE) {
+      setTitle(lastOperation.value);
+    } else {
+      console.warn('Unknown operation type:', lastOperation.type);
+    }
+  }, [lastOperation]);
 
   // region Frozen
   useEffect(() => {
     let communicator: ChildModuleCommunicator | null = null;
     try {
-      const initCallback = (uid: string, actions: ActionMap) => {
+      let currentAspectPermissions: AspectPermissions = {};
+
+      const initCallback = (uid: string, actions: ActionMap, aspects: AspectPermissions) => {
         setModuleUid(uid)
         setActions(actions)
+        setAspectsPermissions(aspects)
+        // Avoids this effect needing to be re-run on every aspect update
+        // This is a one-time setup for the module's aspect permissions.
+        currentAspectPermissions = aspects;
       };
+
+      const handleAspectUpdate = (key: string, value: any) => {
+        if (currentAspectPermissions && key in currentAspectPermissions) {
+          console.log(`✅ Aspect updated: ${key} =`, value);
+          setAspects(prev => ({ ...prev, [key]: value }));
+        } else {
+          console.warn(`🚨 Ignored aspect update for "${key}". Not in permitted aspects for this module.`);
+        }
+      };
+    
+      const handleOperation = (operation: ModuleOperation) => {
+        setLastOperation(operation);
+      };
+
       const {
         communicator: effectCommunicator,
         resultHandler,
@@ -74,7 +97,7 @@ const Component = ({ }) => {
     return () => {
       communicator?.cleanup()
     }
-  }, [handleOperation, handleAspectUpdate]);
+  }, []);
   // endregion Frozen
 
   const requestAspectChange = useCallback((aspectToChange: string, valueToSet: any) => {
