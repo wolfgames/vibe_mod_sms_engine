@@ -15,6 +15,7 @@ const Component = ({ }) => {
   const [resultHandler, setResultHandler] = useState<((payload: ResultPayload<ModuleConfig>) => void) | null>(null);
   const [config, setConfig] = useState<ModuleConfig | null>(null);
   const [moduleUid, setModuleUid] = useState<string | null>(null)
+
   const [actions, setActions] = useState<ActionMap>({})
   const [aspectsPermissions, setAspectsPermissions] = useState<AspectPermissions>({});
   const [lastOperation, setLastOperation] = useState<ModuleOperation | null>(null);
@@ -97,7 +98,7 @@ const Component = ({ }) => {
     return () => {
       communicator?.cleanup()
     }
-  }, []);
+  }, [handleOperation, handleAspectUpdate]);
   // endregion Frozen
 
   const requestAspectChange = useCallback((aspectToChange: string, valueToSet: any) => {
@@ -112,7 +113,12 @@ const Component = ({ }) => {
 
   const reportExecutionResult = useCallback(() => {
     if (!resultHandler || !config || !moduleCommunicator || !actions) {
-      console.error(`${!resultHandler ? 'Result handler' : !config ? 'Config' : 'Communicator'} not initialized`);
+      const missingComponents = [];
+      if (!resultHandler) missingComponents.push('Result handler');
+      if (!config) missingComponents.push('Config');
+      if (!moduleCommunicator) missingComponents.push('Communicator');
+      if (!actions) missingComponents.push('Actions');
+      console.error(`The following components are not initialized: ${missingComponents.join(', ')}`);
       return;
     }
 
@@ -152,7 +158,7 @@ const Component = ({ }) => {
         >
           Request Aspect Change (Viewed +1)
         </button>
-
+        
         <button
           className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
           onClick={reportExecutionResult}
