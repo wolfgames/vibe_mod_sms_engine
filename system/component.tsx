@@ -98,7 +98,7 @@ const Component = ({ }) => {
     return () => {
       communicator?.cleanup()
     }
-  }, [handleOperation, handleAspectUpdate]);
+  }, []);
   // endregion Frozen
 
   const requestAspectChange = useCallback((aspectToChange: string, valueToSet: any) => {
