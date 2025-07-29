@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "cp next.config.dev.js next.config.js && next dev",
     "build": "cp next.config.prod.js next.config.js && next build",
