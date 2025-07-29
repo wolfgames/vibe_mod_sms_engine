@@ -18,6 +18,7 @@ const customOriginConfig: OriginConfig = {
   ]
 };
 
+// DO NOT MODIFY FROZEN REGION BELOW
 // region Frozen
 export const originConfig: OriginConfig = {
   ...DEFAULT_ORIGIN_CONFIG,

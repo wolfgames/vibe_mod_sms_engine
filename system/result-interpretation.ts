@@ -2,6 +2,7 @@ import type { ModuleConfig } from "./configuration"
 import type { AppActions } from './actions'
 import { ModuleResultType, ModuleResult, BaseActions } from 'wolfy-module-kit'
 
+// DO NOT MODIFY FROZEN REGION BELOW
 // region Frozen
 // Result data to be sent to the parent
 // includes the data value, result type, & an array of action UIDs
@@ -21,6 +22,7 @@ export function interpretResult(
   actions: Record<string, any>,
   resultData: any,
 ): ModuleResult {
+  // DO NOT MODIFY FROZEN REGION BELOW
   // region Frozen
 
   // Default action is "done"
@@ -34,6 +36,7 @@ export function interpretResult(
   //   actionToTrigger = BaseActions.AnotherAction
   // }
 
+  // DO NOT MODIFY FROZEN REGION BELOW
   // region Frozen
 
   const actionUid = actions?.[actionToTrigger];

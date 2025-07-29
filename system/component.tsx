@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActionMap, ChildModuleCommunicator, initModule, ResultPayload, ModuleResultType, AspectPermissions, AspectPermissionType } from 'wolfy-module-kit';
 
+// DO NOT MODIFY FROZEN REGION BELOW
 // region Frozen
 import moduleConfig, { type ModuleConfig } from './configuration';
 import { ModuleOperation, ModuleOperationType } from './operation';
@@ -10,6 +11,7 @@ import { interpretResult } from './result-interpretation';
 
 const Component = ({ }) => {
 
+  // DO NOT MODIFY FROZEN REGION BELOW
   // region Frozen
   const [moduleCommunicator, setModuleCommunicator] = useState<ChildModuleCommunicator | null>(null);
   const [resultHandler, setResultHandler] = useState<((payload: ResultPayload<ModuleConfig>) => void) | null>(null);
@@ -40,6 +42,7 @@ const Component = ({ }) => {
     }
   }, [lastOperation]);
 
+  // DO NOT MODIFY FROZEN REGION BELOW
   // region Frozen
   useEffect(() => {
     let communicator: ChildModuleCommunicator | null = null;
@@ -98,7 +101,7 @@ const Component = ({ }) => {
     return () => {
       communicator?.cleanup()
     }
-  }, [handleOperation, handleAspectUpdate]);
+  }, []);
   // endregion Frozen
 
   const requestAspectChange = useCallback((aspectToChange: string, valueToSet: any) => {
