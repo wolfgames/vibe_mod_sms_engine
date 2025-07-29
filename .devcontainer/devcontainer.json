@@ -1,11 +1,11 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:18",
   "hostRequirements": {
     "cpus": 4
   },
   "waitFor": "onCreateCommand",
   "updateContentCommand": "npm install",
-  "postCreateCommand": "",
+  "postCreateCommand": "npm cache clean --force",
   "postAttachCommand": {
     "server": "npm run dev"
   },
@@ -17,10 +17,10 @@
     },
     "vscode": {
       "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "ms-vscode.js-debug",
-        "msjsdiag.debugger-for-chrome",
+        // "dbaeumer.vscode-eslint",
+        // "esbenp.prettier-vscode",
+        // "ms-vscode.js-debug",
+        // "msjsdiag.debugger-for-chrome",
         "kilocode.kilo-code"
       ]
     }
