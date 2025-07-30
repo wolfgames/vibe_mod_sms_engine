@@ -9,6 +9,6 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: white;
-  background-color: #121212; /* Ensures sufficient contrast with white text */
+  color: #1f2937; /* Dark gray text for better readability */
+  background-color: #f3f4f6; /* Light gray background */
 }
