@@ -6,6 +6,7 @@ enum CustomActions {
   CustomAction = 'custom-action'
 }
 
+// DO NOT MODIFY FROZEN REGION BELOW
 // region Frozen
 export const AppActionsSchema = z.nativeEnum({
   ...BaseActions,
