@@ -2,7 +2,7 @@ export interface Contact {
   name: string;
   unlocked: boolean;
   playerInitiated: boolean;
-  rounds: Record<number, Round>;
+  rounds: Record<string, Round>;
   position?: { x: number; y: number };
   size?: { width: number; height: number };
 }
@@ -21,7 +21,7 @@ export interface Choice {
 }
 
 export interface Action {
-  type: string;
+  type: 'unlock_contact' | 'drop_pin' | 'send_photo' | 'send_video' | 'end_thread' | 'call_911' | 'open_thread' | 'delayed_message' | 'trigger_eli_needs_code' | 'typing_indicator' | 'set_typing_delay' | 'show_notification' | 'vibrate' | 'set_contact_status' | 'trigger_emergency_call';
   parameters: Record<string, string | number | boolean>;
 }
 

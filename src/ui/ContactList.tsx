@@ -12,6 +12,7 @@ interface ContactListProps {
   onContactSelect: (contactName: string) => void;
   threadStates: Record<string, 'active' | 'locked' | 'ended'>;
   messageHistory: Record<string, Message[]>;
+  viewedContacts: Set<string>; // Track which contacts have been viewed
 }
 
 export default function ContactList({
@@ -20,7 +21,8 @@ export default function ContactList({
   selectedContact,
   onContactSelect,
   threadStates,
-  messageHistory
+  messageHistory,
+  viewedContacts
 }: ContactListProps) {
   const getLastMessage = (contactName: string): string => {
     const messages = messageHistory[contactName] || [];
@@ -107,8 +109,8 @@ export default function ContactList({
                       {contactName.charAt(0).toUpperCase()}
                     </div>
                   </div>
-                  {/* Blue dot indicator for unread messages */}
-                  {unreadCount > 0 && (
+                  {/* Blue dot indicator for new contacts that haven't been viewed */}
+                  {unreadCount > 0 && !viewedContacts.has(contactName) && (
                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full border-2 border-black"></div>
                   )}
                 </div>

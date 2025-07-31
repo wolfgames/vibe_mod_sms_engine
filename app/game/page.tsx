@@ -5,13 +5,14 @@ import { TweeParser } from '../../src/parser/tweeParser';
 import { GameEngine } from '../../src/engine/gameEngine';
 import SMSInterface from '../../src/ui/SMSInterface';
 import { GameData } from '../../src/parser/types';
+import { testParser } from '../../src/utils/testParser';
 
 export default function GamePage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentScript, setCurrentScript] = useState<string>('SMS Branching40.twee');
+  const [currentScript, setCurrentScript] = useState<string>('SMS Branching40_New_test1.twee');
 
   useEffect(() => {
     loadGame();
@@ -36,6 +37,11 @@ export default function GamePage() {
       
       if (parseResult.errors.length > 0) {
         console.warn('Parser errors:', parseResult.errors);
+        console.warn('Error details:', parseResult.errors.map(err => ({
+          message: err.message,
+          type: err.type,
+          lineNumber: err.lineNumber
+        })));
       }
       
       if (parseResult.warnings.length > 0) {
@@ -80,7 +86,13 @@ export default function GamePage() {
       <div className="flex items-center justify-center h-screen bg-gray-100">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading SMS game...</p>
+          <p className="text-gray-600 mb-4">Loading SMS game...</p>
+          <button
+            onClick={() => testParser()}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+          >
+            Test Parser
+          </button>
         </div>
       </div>
     );

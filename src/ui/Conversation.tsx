@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Contact } from '../parser/types';
 import { Message } from '../engine/gameEngine';
 import MessageBubble from './MessageBubble';
@@ -9,12 +9,13 @@ interface ConversationProps {
   contactName: string;
   contact: Contact;
   messages: Message[];
-  currentRound: number;
+  currentRound: string;
   threadState: 'active' | 'locked' | 'ended';
   onChoiceSelect: (choiceIndex: number) => void;
   onBack: () => void;
   typingDelay?: number;
   onUnlockContactClick?: (contactName: string) => void;
+  gameEngine?: any; // Add gameEngine prop
 }
 
 export default function Conversation({
@@ -26,11 +27,18 @@ export default function Conversation({
   onChoiceSelect,
   onBack,
   typingDelay = 2000,
-  onUnlockContactClick
+  onUnlockContactClick,
+  gameEngine
 }: ConversationProps) {
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showChoices, setShowChoices] = useState(false);
   const [showTypingIndicator, setShowTypingIndicator] = useState(false);
+
+  // Memoize the current typing delay to ensure stable reference
+  const currentTypingDelay = useMemo(() => {
+    return gameEngine ? gameEngine.getGlobalTypingDelay() : typingDelay;
+  }, [gameEngine, typingDelay]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,31 +53,21 @@ export default function Conversation({
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       
-      // Find the next available round (may not be sequential)
-      const availableRounds = Object.keys(contact.rounds)
-        .map(Number)
-        .filter(round => round > currentRound)
-        .sort((a, b) => a - b);
-      const nextRoundNumber = availableRounds.length > 0 ? availableRounds[0] : null;
-      const nextRound = nextRoundNumber ? contact.rounds[nextRoundNumber] : null;
-      
-      // Show typing indicator ONLY when:
-      // Last message is from player (waiting for contact response) AND there's a next round
-      const waitingForResponse = lastMessage && lastMessage.isFromPlayer && nextRound && nextRound.passage;
-      
-      if (waitingForResponse) {
+      // Show typing indicator when last message is from player
+      if (lastMessage && lastMessage.isFromPlayer) {
         setShowTypingIndicator(true);
-        // Hide typing indicator after the delay
+        
+        // Hide typing indicator after the delay from debug slider
         const timer = setTimeout(() => {
           setShowTypingIndicator(false);
-        }, typingDelay);
+        }, currentTypingDelay);
         
         return () => clearTimeout(timer);
       } else {
         setShowTypingIndicator(false);
       }
     }
-  }, [messages, currentRound, contact.rounds, typingDelay]);
+  }, [messages, currentRound, contact.rounds, currentTypingDelay, contactName]);
 
   const getCurrentChoices = () => {
     // Safety check: ensure contact exists and has rounds
@@ -187,7 +185,7 @@ export default function Conversation({
         ))}
 
         {/* Typing indicator - only show when waiting for contact response after player choice */}
-        {threadState === 'active' && showTypingIndicator && (
+        {showTypingIndicator && (
           <div className="flex justify-start mb-4">
             <div className="bg-gray-800 rounded-2xl px-4 py-2 shadow-sm border border-gray-700">
               <div className="flex space-x-1">
@@ -199,12 +197,11 @@ export default function Conversation({
           </div>
         )}
 
-        {/* Thread state message */}
-        {threadState !== 'active' && (
+        {/* Thread state message - only show for ended conversations */}
+        {threadState === 'ended' && (
           <div className="flex justify-center my-4">
-            <div className="bg-gray-800 text-gray-400 text-sm px-4 py-2 rounded-full">
-              {threadState === 'locked' && 'This conversation is locked until conditions are met'}
-              {threadState === 'ended' && 'This conversation has ended'}
+            <div className="text-gray-500 text-sm">
+              The Conversation has ended
             </div>
           </div>
         )}
@@ -219,7 +216,7 @@ export default function Conversation({
             <div className="bg-gray-800 rounded-lg p-4">
               <div className="text-white text-sm mb-3 font-semibold">Choose your response:</div>
               <div className="space-y-2">
-                {currentChoices.map((choice, index) => (
+                {currentChoices.map((choice: any, index: number) => (
                   <button
                     key={index}
                     className="w-full text-left bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-2 text-white transition-colors"
@@ -235,27 +232,25 @@ export default function Conversation({
       )}
 
                                          {/* Input bar */}
-        {threadState === 'active' && (
-          <div className="w-full h-[56px] bg-black/90 flex items-center px-4 gap-2 absolute bottom-0 left-0">
-            <button className="w-8 h-8 flex items-center justify-center">
-              <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
-                <rect x="3" y="5" width="18" height="14" rx="3" fill="#fff"/>
-                <circle cx="8" cy="12" r="2" fill="#bbb"/>
-              </svg>
-            </button>
-            <input 
-              className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 outline-none border-none text-sm"
-              placeholder="iMessage" 
-              onClick={handleInputClick}
-              readOnly
-            />
-            <button className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center ml-2">
-              <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
-                <path d="M4 8h8M8 4l4 4-4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        )}
+        <div className="w-full h-[56px] bg-black/90 flex items-center px-4 gap-2 absolute bottom-0 left-0">
+          <button className="w-8 h-8 flex items-center justify-center">
+            <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+              <rect x="3" y="5" width="18" height="14" rx="3" fill="#fff"/>
+              <circle cx="8" cy="12" r="2" fill="#bbb"/>
+            </svg>
+          </button>
+          <input 
+            className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 outline-none border-none text-sm"
+            placeholder="iMessage" 
+            onClick={handleInputClick}
+            readOnly
+          />
+          <button className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center ml-2">
+            <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
+              <path d="M4 8h8M8 4l4 4-4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
     </div>
   );
 } 

@@ -1,12 +1,12 @@
 import { GameData, Contact, Round, Action } from '../parser/types';
 
 export interface GameState {
-  currentRounds: Record<string, number>;
+  currentRounds: Record<string, string>;
   variables: Record<string, any>;
   threadStates: Record<string, 'active' | 'locked' | 'ended'>;
   messageHistory: Record<string, Message[]>;
   unlockedContacts: Set<string>;
-  messageQueue: QueuedMessage[];
+  viewedContacts: Set<string>; // Track which contacts have been viewed
   typingDelays: Record<string, number>;
   gameStartTime: number;
   notifications: Array<{
@@ -25,7 +25,7 @@ export interface Message {
   text: string;
   timestamp: number;
   isFromPlayer: boolean;
-  type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact';
+  type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact' | 'end_thread';
   mediaUrl?: string;
   caption?: string;
   location?: {
@@ -57,7 +57,10 @@ export class GameEngine {
   private state: GameState;
   private gameData: GameData;
   public events: GameEngineEvents;
-  private messageQueueTimer: NodeJS.Timeout | null = null;
+
+  private pendingUnlockContact: string | null = null;
+  private pendingEndThread: boolean = false;
+  private pendingResponses: Set<string> = new Set();
 
   constructor(gameData: GameData, events: GameEngineEvents) {
     this.gameData = gameData;
@@ -83,24 +86,26 @@ export class GameEngine {
       threadStates: {},
       messageHistory: {},
       unlockedContacts: initiallyUnlocked,
-      messageQueue: [],
-      typingDelays: { global: 0 }, // Initialize with 0ms delay
+      viewedContacts: new Set<string>(), // Initialize empty set for viewed contacts
+
+      typingDelays: { global: 2000 }, // Initialize with 2000ms default instead of 0
       gameStartTime: Date.now(),
       notifications: []
     };
 
-    // Set up Jamie as the starting contact with initial message
-    if (this.gameData.contacts['Jamie']) {
-      initialState.unlockedContacts.add('Jamie');
-      initialState.currentRounds['Jamie'] = 1;
+    // Set up the first unlocked contact as the starting contact with initial message
+    const unlockedContacts = Array.from(initiallyUnlocked);
+    if (unlockedContacts.length > 0) {
+      const firstContact = unlockedContacts[0];
+      initialState.currentRounds[firstContact] = "1";
       
-      // Add initial message from Jamie using round 1 passage
-      const jamieContact = this.gameData.contacts['Jamie'];
-      const round1 = jamieContact.rounds[1];
+      // Add initial message from the first contact using round 1 passage
+      const firstContactData = this.gameData.contacts[firstContact];
+      const round1 = firstContactData.rounds["1"];
       if (round1 && round1.passage) {
         const initialMessage: Message = {
           id: `msg_${Date.now()}_initial`,
-          contactName: 'Jamie',
+          contactName: firstContact,
           text: round1.passage,
           timestamp: Date.now(),
           isFromPlayer: false,
@@ -108,7 +113,7 @@ export class GameEngine {
           read: false
         };
         
-        initialState.messageHistory['Jamie'] = [initialMessage];
+        initialState.messageHistory[firstContact] = [initialMessage];
       }
     }
 
@@ -120,12 +125,9 @@ export class GameEngine {
     const contact = this.gameData.contacts[contactName];
     if (!contact) return false;
 
-    const currentRound = this.state.currentRounds[contactName] || 1;
-    // Ensure we can't skip rounds - must progress sequentially
-    if (currentRound < 1) {
-      this.state.currentRounds[contactName] = 1;
-    }
+    const currentRound = this.state.currentRounds[contactName] || "1";
     
+    // Find the current round object
     const round = contact.rounds[currentRound];
     if (!round || choiceIndex >= round.choices.length) return false;
 
@@ -139,37 +141,22 @@ export class GameEngine {
     
     // Execute actions from the target passage
     if (responsePassage) {
-             // For Jamie, we need to handle specific choice-to-action mappings
-       if (contact.name === 'Jamie' && currentRound === 2) {
-         if (choice.text === 'Who else was she close with?') {
-           // This choice should trigger the unlock action
-           this.executeAction({
-             type: 'unlock_contact',
-             parameters: { contactName: 'Maya' }
-           });
-         }
-       }
-      
       // Find the target passage that contains the actions
-      for (const [roundNum, round] of Object.entries(contact.rounds)) {
-        if (round.passage && round.passage.includes(responsePassage)) {
-          if (round.actions && round.actions.length > 0) {
-            this.executeActions(round.actions);
-          }
-          break;
-        }
+      const targetRound = this.findTargetRound(contact, responsePassage);
+      if (targetRound && targetRound.actions && targetRound.actions.length > 0) {
+        this.executeActions(targetRound.actions);
       }
     }
     
     if (responsePassage) {
-      // Advance to the next round
-      this.state.currentRounds[contactName] = currentRound + 1;
+      // Find the next round number based on the choice target
+      const nextRound = this.findNextRoundNumber(contact, choice.targetPassage);
+      if (nextRound) {
+        this.state.currentRounds[contactName] = nextRound;
+      }
       
-      // Add contact's response after the typing indicator finishes
-      const delay = this.getGlobalTypingDelay();
-      setTimeout(() => {
-        this.addMessage(contactName, responsePassage, false);
-      }, delay);
+      // Queue the contact's response to appear after the typing delay
+      this.queueResponseMessage(contactName, responsePassage);
     } else {
       // End thread if no response found
       this.state.threadStates[contactName] = 'ended';
@@ -180,69 +167,63 @@ export class GameEngine {
     return true;
   }
 
-  private findResponseForChoice(contact: Contact, choice: any, currentRound: number): string | null {
+  private findResponseForChoice(contact: Contact, choice: any, currentRound: string): string | null {
     const choiceText = choice.text.trim();
+    const targetPassageName = choice.targetPassage;
     
-    // For Jamie, we need to map specific choices to their correct responses
-    if (contact.name === 'Jamie') {
-      // Round 1 choices -> Round 2 responses
-      if (currentRound === 1) {
-        const nextRound = contact.rounds[2];
-        if (nextRound && nextRound.passage) {
-          return nextRound.passage;
-        }
-      }
+    // Extract round number from target passage name (e.g., "Round-2.1" -> "2.1")
+    const roundMatch = targetPassageName.match(/Round-(\d+(?:\.\d+)?)/);
+    if (roundMatch) {
+      const roundKey = roundMatch[1]; // "2.1", "2.2", etc.
       
-      // Round 2 choices -> Round 3 responses (specific mapping)
-      if (currentRound === 2) {
-        if (choiceText === 'Why did you contact me?') {
-          return 'I was hoping you might know where she was';
-        } else if (choiceText === 'Did you try calling the cops?') {
-          return 'Not yet, I was checking her texts for any leads.';
-        } else if (choiceText === 'Who else was she close with?') {
-          return 'I think she was upset about her ex—Maya. You might wanna talk to her.';
-        }
-      }
-      
-      // Round 3 choices -> specific responses
-      if (currentRound === 3) {
-        if (choiceText === 'Who else was she close with?') {
-          return 'I think she was upset about her ex—Maya. You might wanna talk to her.';
-        } else if (choiceText === 'Why did you contact me?') {
-          return 'I was hoping you might know where she was';
-        } else if (choiceText === 'Did you try calling the cops?') {
-          return 'Not yet, I was checking her texts for any leads.';
-        }
+      // Look for the target round in the contact's rounds
+      if (contact.rounds[roundKey]) {
+        return contact.rounds[roundKey].passage;
       }
     }
     
-    // Fallback: try to find any response in the next round
-    const nextRoundNumber = currentRound + 1;
-    const nextRound = contact.rounds[nextRoundNumber];
+    // Fallback: try to find by exact round name (for backward compatibility)
+    if (contact.rounds[targetPassageName]) {
+      return contact.rounds[targetPassageName].passage;
+    }
     
-    if (nextRound && nextRound.passage) {
-      return nextRound.passage;
+    // If not found by round name, try to find by partial match
+    for (const [roundKey, round] of Object.entries(contact.rounds)) {
+      if (round.passage && round.passage.trim() !== '') {
+        // Check if the first line of the passage matches the choice text
+        const passageLines = round.passage.split('\n');
+        const firstLine = passageLines[0]?.trim();
+        if (firstLine === choiceText) {
+          return round.passage;
+        }
+      }
     }
     
     return null;
   }
 
-  private findNextRound(contact: Contact, currentRound: number): number | null {
-    // Get all available round numbers and sort them
-    const availableRounds = Object.keys(contact.rounds)
-      .map(Number)
-      .filter(round => round > currentRound)
-      .sort((a, b) => a - b);
+  private findNextRoundNumber(contact: Contact, targetPassageName: string): string | null {
+    // Extract the round number from the target passage name (e.g., "Round-2.1" -> "2.1")
+    const roundMatch = targetPassageName.match(/Round-(\d+(?:\.\d+)?)/);
+    if (roundMatch) {
+      return roundMatch[1]; // Return "2.1", "2.2", etc.
+    }
     
-    // Return the next available round, or null if none exist
-    return availableRounds.length > 0 ? availableRounds[0] : null;
+    // Fallback: try to find the next sequential round
+    const currentRoundNum = parseFloat(this.state.currentRounds[contact.name] || "1");
+    const availableRounds = Object.keys(contact.rounds)
+      .map(key => ({ key, num: parseFloat(key) }))
+      .filter(round => round.num > currentRoundNum)
+      .sort((a, b) => a.num - b.num);
+    
+    return availableRounds.length > 0 ? availableRounds[0].key : null;
   }
 
   evaluateConditions(contactName: string): boolean {
     const contact = this.gameData.contacts[contactName];
     if (!contact) return false;
 
-    const currentRound = this.state.currentRounds[contactName] || 1;
+    const currentRound = this.state.currentRounds[contactName] || "1";
     const round = contact.rounds[currentRound];
     if (!round) return false;
 
@@ -260,72 +241,180 @@ export class GameEngine {
   private executeAction(action: Action): void {
     this.events.onActionExecuted(action);
 
-    switch (action.type) {
-      case 'unlock_contact':
-        const contactToUnlock = action.parameters.contactName as string;
-        if (contactToUnlock) {
-          this.unlockContact(contactToUnlock);
-          // Dispatch event for UI updates
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('character-unlocked', {
-              detail: { character: contactToUnlock }
-            }));
-          }
-        }
-        break;
-      
-      case 'end_thread':
-        const contactName = this.getCurrentContactFromAction(action);
-        if (contactName) {
-          this.state.threadStates[contactName] = 'locked';
-          this.events.onThreadStateChanged(contactName, 'locked');
-        }
-        break;
-      
-      case 'delayed_message':
-        this.queueDelayedMessage(action);
-        break;
-      
-      case 'send_photo':
-        this.queuePhotoMessage(action);
-        break;
-      
-      case 'send_video':
-        this.queueVideoMessage(action);
-        break;
-      
-      case 'drop_pin':
-        this.queueLocationMessage(action);
-        break;
-      
-      case 'typing_indicator':
-        this.queueTypingIndicator(action);
-        break;
-      
-      case 'set_typing_delay':
-        this.setTypingDelay(action);
-        break;
-      
-      case 'mark_read':
-        this.markConversationRead(action.parameters.contactName as string);
-        break;
-      
-      case 'notification':
-        this.showNotification(action);
-        break;
-      
-      case 'vibrate':
-        this.vibrate(action.parameters.pattern as string);
-        break;
-      
-      case 'set_contact_status':
-        this.setContactStatus(action);
-        break;
-      
-      case 'call_911':
-        this.triggerEmergencyCall();
-        break;
+    try {
+      switch (action.type) {
+        case 'unlock_contact':
+          this.handleUnlockContact(action);
+          break;
+        
+        case 'end_thread':
+          this.handleEndThread(action);
+          break;
+        
+        case 'delayed_message':
+          this.handleDelayedMessage(action);
+          break;
+        
+        case 'send_photo':
+          this.handleSendPhoto(action);
+          break;
+        
+        case 'send_video':
+          this.handleSendVideo(action);
+          break;
+        
+        case 'drop_pin':
+          this.handleDropPin(action);
+          break;
+        
+        case 'call_911':
+          this.handleCall911(action);
+          break;
+        
+        case 'open_thread':
+          this.handleOpenThread(action);
+          break;
+        
+        case 'trigger_eli_needs_code':
+          this.handleTriggerEliNeedsCode(action);
+          break;
+        
+        case 'typing_indicator':
+          this.handleTypingIndicator(action);
+          break;
+        
+        case 'set_typing_delay':
+          this.handleSetTypingDelay(action);
+          break;
+        
+        case 'show_notification':
+          this.handleShowNotification(action);
+          break;
+        
+        case 'vibrate':
+          this.handleVibrate(action);
+          break;
+        
+        case 'set_contact_status':
+          this.handleSetContactStatus(action);
+          break;
+        
+        case 'trigger_emergency_call':
+          this.handleTriggerEmergencyCall(action);
+          break;
+        
+        default:
+          console.warn(`Unknown action type: ${action.type}`);
+      }
+    } catch (error) {
+      console.error(`Error executing action ${action.type}:`, error);
     }
+  }
+
+  private handleUnlockContact(action: Action): void {
+    let contactToUnlock: string;
+    
+    // Handle different parameter formats
+    if (action.parameters.contactName) {
+      contactToUnlock = action.parameters.contactName as string;
+    } else if (action.parameters.character) {
+      contactToUnlock = action.parameters.character as string;
+    } else {
+      console.warn('unlock_contact action missing contact name');
+      return;
+    }
+    
+    if (contactToUnlock) {
+      // Actually unlock the contact in the game state
+      this.unlockContact(contactToUnlock);
+      
+      // Store the contact to unlock - it will be queued after the response appears
+      this.pendingUnlockContact = contactToUnlock;
+      // Dispatch event for UI updates
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('character-unlocked', {
+          detail: { character: contactToUnlock }
+        }));
+      }
+    }
+  }
+
+  private handleEndThread(action: Action): void {
+    const contactName = this.getCurrentContactFromAction(action);
+    if (contactName) {
+      this.state.threadStates[contactName] = 'locked';
+      this.events.onThreadStateChanged(contactName, 'locked');
+      
+      // Set flag to add end thread message after response
+      this.pendingEndThread = true;
+    }
+  }
+
+  private handleDelayedMessage(action: Action): void {
+    this.queueDelayedMessage(action);
+  }
+
+  private handleSendPhoto(action: Action): void {
+    this.queuePhotoMessage(action);
+  }
+
+  private handleSendVideo(action: Action): void {
+    this.queueVideoMessage(action);
+  }
+
+  private handleDropPin(action: Action): void {
+    this.queueLocationMessage(action);
+  }
+
+  private handleCall911(action: Action): void {
+    this.triggerEmergencyCall();
+  }
+
+  private handleOpenThread(action: Action): void {
+    const character = action.parameters.character as string;
+    const threadId = action.parameters.thread_id as string;
+    
+    if (character && threadId) {
+      // Dispatch event for UI to open thread
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('open-thread', {
+          detail: { character, thread_id: threadId }
+        }));
+      }
+    }
+  }
+
+  private handleTriggerEliNeedsCode(action: Action): void {
+    // Dispatch event for character needs code scenario
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('trigger-eli-needs-code', {
+        detail: { character: action.parameters.character || 'Unknown' }
+      }));
+    }
+  }
+
+  private handleTypingIndicator(action: Action): void {
+    this.queueTypingIndicator(action);
+  }
+
+  private handleSetTypingDelay(action: Action): void {
+    this.setTypingDelay(action);
+  }
+
+  private handleShowNotification(action: Action): void {
+    this.showNotification(action);
+  }
+
+  private handleVibrate(action: Action): void {
+    this.vibrate(action.parameters.pattern as string || 'default');
+  }
+
+  private handleSetContactStatus(action: Action): void {
+    // TODO: Implement contact status management
+  }
+
+  private handleTriggerEmergencyCall(action: Action): void {
+    this.triggerEmergencyCall();
   }
 
   private getCurrentContactFromAction(action: Action): string | null {
@@ -344,31 +433,12 @@ export class GameEngine {
       this.state.unlockedContacts.add(contactName);
       // Ensure newly unlocked contacts start on round 1
       if (!this.state.currentRounds[contactName]) {
-        this.state.currentRounds[contactName] = 1;
+        this.state.currentRounds[contactName] = "1";
       }
       
       // Initialize empty message history for the newly unlocked contact
       if (!this.state.messageHistory[contactName]) {
         this.state.messageHistory[contactName] = [];
-      }
-      
-      // Add green bubble notification to the current active conversation
-      // Find the current active conversation (the one that triggered the unlock)
-      for (const [activeContact, messages] of Object.entries(this.state.messageHistory)) {
-        if (messages.length > 0) {
-          // Add the unlock notification to the active conversation
-          this.addMessage(
-            activeContact,
-            `${contactName} is now available to chat with`,
-            false,
-            'unlock_contact',
-            undefined,
-            undefined,
-            undefined,
-            contactName
-          );
-          break; // Only add to the first active conversation
-        }
       }
       
       this.events.onContactUnlocked(contactName);
@@ -399,25 +469,9 @@ export class GameEngine {
     const message = action.parameters.message as string;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    const queuedMessage: QueuedMessage = {
-      id: `msg_${Date.now()}_${Math.random()}`,
-      contactName,
-      message: {
-        id: `msg_${Date.now()}_${Math.random()}`,
-        contactName,
-        text: message,
-        timestamp: Date.now() + delay,
-        isFromPlayer: false,
-        type: 'text',
-        read: false
-      },
-      delay,
-      scheduledTime: Date.now() + delay
-    };
-
-    this.state.messageQueue.push(queuedMessage);
-    this.sortMessageQueue();
-    this.processMessageQueue();
+    setTimeout(() => {
+      this.addMessage(contactName, message, false);
+    }, delay);
   }
 
   private queuePhotoMessage(action: Action): void {
@@ -426,27 +480,9 @@ export class GameEngine {
     const caption = action.parameters.caption as string;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    const queuedMessage: QueuedMessage = {
-      id: `photo_${Date.now()}_${Math.random()}`,
-      contactName,
-      message: {
-        id: `photo_${Date.now()}_${Math.random()}`,
-        contactName,
-        text: caption || '',
-        timestamp: Date.now() + delay,
-        isFromPlayer: false,
-        type: 'photo',
-        mediaUrl: `/assets/images/${file}`,
-        caption,
-        read: false
-      },
-      delay,
-      scheduledTime: Date.now() + delay
-    };
-
-    this.state.messageQueue.push(queuedMessage);
-    this.sortMessageQueue();
-    this.processMessageQueue();
+    setTimeout(() => {
+      this.addMessage(contactName, caption || '', false, 'photo', `/assets/images/${file}`, caption);
+    }, delay);
   }
 
   private queueVideoMessage(action: Action): void {
@@ -455,27 +491,9 @@ export class GameEngine {
     const caption = action.parameters.caption as string;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    const queuedMessage: QueuedMessage = {
-      id: `video_${Date.now()}_${Math.random()}`,
-      contactName,
-      message: {
-        id: `video_${Date.now()}_${Math.random()}`,
-        contactName,
-        text: caption || '',
-        timestamp: Date.now() + delay,
-        isFromPlayer: false,
-        type: 'video',
-        mediaUrl: `/assets/videos/${file}`,
-        caption,
-        read: false
-      },
-      delay,
-      scheduledTime: Date.now() + delay
-    };
-
-    this.state.messageQueue.push(queuedMessage);
-    this.sortMessageQueue();
-    this.processMessageQueue();
+    setTimeout(() => {
+      this.addMessage(contactName, caption || '', false, 'video', `/assets/videos/${file}`, caption);
+    }, delay);
   }
 
   private queueLocationMessage(action: Action): void {
@@ -485,56 +503,90 @@ export class GameEngine {
     const mapFile = action.parameters.mapfile as string;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    const queuedMessage: QueuedMessage = {
-      id: `location_${Date.now()}_${Math.random()}`,
-      contactName,
-      message: {
-        id: `location_${Date.now()}_${Math.random()}`,
+    setTimeout(() => {
+      this.addMessage(
         contactName,
-        text: description || '',
-        timestamp: Date.now() + delay,
-        isFromPlayer: false,
-        type: 'location',
-        location: {
+        description || '',
+        false,
+        'location',
+        undefined,
+        undefined,
+        {
           name: location,
           description,
           mapFile: mapFile ? `/assets/images/${mapFile}` : undefined
-        },
-        read: false
-      },
-      delay,
-      scheduledTime: Date.now() + delay
-    };
-
-    this.state.messageQueue.push(queuedMessage);
-    this.sortMessageQueue();
-    this.processMessageQueue();
+        }
+      );
+    }, delay);
   }
 
   private queueTypingIndicator(action: Action): void {
     const duration = action.parameters.duration as number || 1000;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    const queuedMessage: QueuedMessage = {
-      id: `typing_${Date.now()}_${Math.random()}`,
-      contactName,
-      message: {
-        id: `typing_${Date.now()}_${Math.random()}`,
-        contactName,
-        text: '',
-        timestamp: Date.now() + duration,
-        isFromPlayer: false,
-        type: 'typing',
-        read: false
-      },
-      delay: duration,
-      scheduledTime: Date.now() + duration
-    };
-
-    this.state.messageQueue.push(queuedMessage);
-    this.sortMessageQueue();
-    this.processMessageQueue();
+    setTimeout(() => {
+      this.addMessage(contactName, '', false, 'typing');
+    }, duration);
   }
+
+  private queueResponseMessage(contactName: string, responseText: string): void {
+    const delay = this.getGlobalTypingDelay();
+    
+
+    
+    // Mark that we have a pending response for this contact
+    this.pendingResponses.add(contactName);
+    
+    // Simple approach: just use setTimeout directly
+    setTimeout(() => {
+      // Add the response message
+      this.addMessage(contactName, responseText, false);
+      this.pendingResponses.delete(contactName);
+      
+             // If there's a pending unlock contact, add it after a short delay
+       if (this.pendingUnlockContact) {
+         setTimeout(() => {
+           this.addMessage(
+             contactName,
+             `New Contact: ${this.pendingUnlockContact}`,
+             false,
+             'unlock_contact',
+             undefined,
+             undefined,
+             undefined,
+             this.pendingUnlockContact || undefined
+           );
+           this.pendingUnlockContact = null;
+           
+           // If there's a pending end thread, add it after unlock contact
+           if (this.pendingEndThread) {
+             setTimeout(() => {
+               this.addMessage(
+                 contactName,
+                 'The Conversation Has Ended',
+                 false,
+                 'end_thread'
+               );
+               this.pendingEndThread = false;
+             }, 500);
+           }
+         }, 1000);
+       } else if (this.pendingEndThread) {
+         // If no unlock contact but there's a pending end thread, add it after a short delay
+         setTimeout(() => {
+           this.addMessage(
+             contactName,
+             'The Conversation Has Ended',
+             false,
+             'end_thread'
+           );
+           this.pendingEndThread = false;
+         }, 500);
+       }
+    }, delay);
+  }
+
+
 
   private setTypingDelay(action: Action): void {
     const delay = action.parameters.delay as number || 1000;
@@ -548,8 +600,20 @@ export class GameEngine {
     this.saveGameState();
   }
 
+  // Force reset typing delay to a specific value (for debugging)
+  forceSetTypingDelay(delay: number): void {
+    this.state.typingDelays.global = delay;
+    this.saveGameState();
+  }
+
   getGlobalTypingDelay(): number {
-    return this.state.typingDelays.global || 0;
+    const delay = this.state.typingDelays.global;
+    return delay !== undefined ? delay : 2000; // Default to 2000ms if not set
+  }
+
+  hasPendingResponse(contactName: string): boolean {
+    const hasPending = this.pendingResponses.has(contactName);
+    return hasPending;
   }
 
   private markConversationRead(contactName: string): void {
@@ -560,6 +624,17 @@ export class GameEngine {
 
   markContactMessagesAsRead(contactName: string): void {
     this.markConversationRead(contactName);
+    // Mark contact as viewed when messages are read
+    this.markContactAsViewed(contactName);
+  }
+
+  markContactAsViewed(contactName: string): void {
+    this.state.viewedContacts.add(contactName);
+    this.saveGameState();
+  }
+
+  isContactViewed(contactName: string): boolean {
+    return this.state.viewedContacts.has(contactName);
   }
 
   private showNotification(action: Action): void {
@@ -586,50 +661,13 @@ export class GameEngine {
     // TODO: Implement emergency call sequence
   }
 
-  private sortMessageQueue(): void {
-    this.state.messageQueue.sort((a, b) => a.scheduledTime - b.scheduledTime);
-  }
 
-  private processMessageQueue(): void {
-    if (this.messageQueueTimer) {
-      clearTimeout(this.messageQueueTimer);
-    }
-
-    const now = Date.now();
-    const readyMessages = this.state.messageQueue.filter(msg => msg.scheduledTime <= now);
-    
-    // Process ready messages
-    for (const queuedMsg of readyMessages) {
-      this.addMessage(
-        queuedMsg.contactName,
-        queuedMsg.message.text,
-        queuedMsg.message.isFromPlayer,
-        queuedMsg.message.type,
-        queuedMsg.message.mediaUrl,
-        queuedMsg.message.caption,
-        queuedMsg.message.location
-      );
-    }
-
-    // Remove processed messages
-    this.state.messageQueue = this.state.messageQueue.filter(msg => msg.scheduledTime > now);
-
-    // Schedule next check
-    if (this.state.messageQueue.length > 0) {
-      const nextMessage = this.state.messageQueue[0];
-      const timeUntilNext = nextMessage.scheduledTime - now;
-      
-      this.messageQueueTimer = setTimeout(() => {
-        this.processMessageQueue();
-      }, Math.max(0, timeUntilNext));
-    }
-  }
 
   addMessage(
     contactName: string,
     text: string,
     isFromPlayer: boolean,
-    type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact' = 'text',
+    type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact' | 'end_thread' = 'text',
     mediaUrl?: string,
     caption?: string,
     location?: Message['location'],
@@ -694,11 +732,11 @@ export class GameEngine {
     return this.state.threadStates[contactName] || 'active';
   }
 
-  getCurrentRound(contactName: string): number {
+  getCurrentRound(contactName: string): string {
     const round = this.state.currentRounds[contactName];
     // Ensure we always start on round 1 and progress sequentially
-    if (!round || round < 1) {
-      return 1;
+    if (!round || round === "0") {
+      return "1";
     }
     return round;
   }
@@ -718,7 +756,8 @@ export class GameEngine {
       // Convert Set to array for JSON serialization
       const stateToSave = {
         ...this.state,
-        unlockedContacts: Array.from(this.state.unlockedContacts)
+        unlockedContacts: Array.from(this.state.unlockedContacts),
+        viewedContacts: Array.from(this.state.viewedContacts)
       };
       localStorage.setItem('sms_game_state', JSON.stringify(stateToSave));
     } catch (error) {
@@ -751,14 +790,31 @@ export class GameEngine {
         } else {
           this.state.unlockedContacts = new Set();
         }
-        
-        // Only preserve the current typing delay if it's been explicitly set by the user
-        // Otherwise, use the saved value or default
-        if (currentTypingDelay !== undefined && currentTypingDelay !== 2000) {
-          this.state.typingDelays.global = currentTypingDelay;
-        } else if (parsed.typingDelays && parsed.typingDelays.global !== undefined) {
-          this.state.typingDelays.global = parsed.typingDelays.global;
+
+        // Restore viewedContacts Set
+        if (parsed.viewedContacts) {
+          if (Array.isArray(parsed.viewedContacts)) {
+            this.state.viewedContacts = new Set(parsed.viewedContacts);
+          } else if (typeof parsed.viewedContacts === 'object') {
+            // Convert object keys to array
+            this.state.viewedContacts = new Set(Object.keys(parsed.viewedContacts));
+          } else {
+            this.state.viewedContacts = new Set();
+          }
+        } else {
+          this.state.viewedContacts = new Set();
         }
+        
+        // Restore typing delay - use saved value if it exists, otherwise use current value
+        if (parsed.typingDelays && parsed.typingDelays.global !== undefined) {
+          this.state.typingDelays.global = parsed.typingDelays.global;
+        } else {
+          // If no saved typing delay, ensure we have the default
+          this.state.typingDelays.global = currentTypingDelay || 2000;
+        }
+      } else {
+        // Initialize with a default typing delay if no saved state
+        this.state.typingDelays.global = 2000; // Default to 2 seconds
       }
     } catch (error) {
       console.warn('Failed to load game state:', error);
@@ -769,9 +825,13 @@ export class GameEngine {
     this.state = this.initializeState();
     localStorage.removeItem('sms_game_state');
     // Trigger events to update UI
-    this.events.onContactUnlocked('Jamie');
-    if (this.state.messageHistory['Jamie'] && this.state.messageHistory['Jamie'].length > 0) {
-      this.events.onMessageAdded(this.state.messageHistory['Jamie'][0]);
+    const unlockedContacts = Array.from(this.state.unlockedContacts);
+    if (unlockedContacts.length > 0) {
+      const firstContact = unlockedContacts[0];
+      this.events.onContactUnlocked(firstContact);
+      if (this.state.messageHistory[firstContact] && this.state.messageHistory[firstContact].length > 0) {
+        this.events.onMessageAdded(this.state.messageHistory[firstContact][0]);
+      }
     }
   }
 
@@ -784,9 +844,19 @@ export class GameEngine {
   // Test method to manually trigger an action
   testAction(actionType: string, parameters: Record<string, any>): void {
     const action: Action = {
-      type: actionType,
+      type: actionType as any,
       parameters
     };
     this.executeAction(action);
+  }
+
+  private findTargetRound(contact: Contact, responseText: string): Round | null {
+    // Look through all rounds to find the one that contains the response text
+    for (const [roundKey, round] of Object.entries(contact.rounds)) {
+      if (round.passage && round.passage.trim() === responseText.trim()) {
+        return round;
+      }
+    }
+    return null;
   }
 } 

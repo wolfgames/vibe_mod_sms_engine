@@ -17,13 +17,17 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
   const [gameState, setGameState] = useState<GameState>(gameEngine.getGameState());
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [typingDelay, setTypingDelay] = useState(0); // Initialize with 0, don't call gameEngine here
+  // Initialize typing delay with the game engine's current value instead of 0
+  const [typingDelay, setTypingDelay] = useState(() => gameEngine.getGlobalTypingDelay());
   const [notifications, setNotifications] = useState<GameState['notifications']>(gameEngine.getNotifications());
 
-  // Sync typing delay with game engine on mount
+  // Sync typing delay with game engine on mount and when game engine changes
   useEffect(() => {
-    setTypingDelay(gameEngine.getGlobalTypingDelay());
-  }, []);
+    const engineDelay = gameEngine.getGlobalTypingDelay();
+    if (engineDelay !== typingDelay) {
+      setTypingDelay(engineDelay);
+    }
+  }, [gameEngine]); // Remove typingDelay from dependencies to avoid infinite loop
 
   useEffect(() => {
     const handleMessageAdded = (message: Message) => {
@@ -225,6 +229,16 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
                    className="flex-1"
                  />
                  <span className="text-white text-sm w-16">{typingDelay}</span>
+                 <button 
+                   onClick={() => {
+                     setTypingDelay(0);
+                     gameEngine.setGlobalTypingDelay(0);
+                     gameEngine.forceSetTypingDelay(0);
+                   }}
+                   className="ml-2 px-2 py-1 bg-blue-600 text-white text-xs rounded"
+                 >
+                   Test
+                 </button>
                </div>
              </div>
              <div>
@@ -309,6 +323,7 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
                      onContactSelect={handleContactSelect}
                      threadStates={gameState.threadStates}
                      messageHistory={gameState.messageHistory}
+                     viewedContacts={gameState.viewedContacts}
                    />
                  </div>
 
@@ -325,6 +340,7 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
                         onBack={handleBackToMessages}
                         typingDelay={typingDelay}
                         onUnlockContactClick={handleUnlockContactClick}
+                        gameEngine={gameEngine}
                       />
                    </div>
                  )}

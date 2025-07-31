@@ -139,31 +139,44 @@ export default function MessageBubble({ message, timestamp, isLastInGroup, onUnl
           </div>
         );
 
+      case 'end_thread':
+        return (
+          <div className="text-center">
+            <span className="text-gray-500 text-sm">{message.text}</span>
+          </div>
+        );
+
       default:
         return <p className="text-sm">{message.text}</p>;
     }
   };
 
   return (
-    <div className={`flex ${isFromPlayer ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-xs lg:max-w-md ${isFromPlayer ? 'order-2' : 'order-1'}`}>
-        <div
-          className={`rounded-2xl px-4 py-2 shadow-sm ${
-            message.type === 'unlock_contact'
-              ? 'bg-green-600 text-white hover:bg-green-700 transition-colors cursor-pointer'
-              : isFromPlayer
-              ? 'bg-blue-500 text-white'
-              : 'bg-gray-700 text-white'
-          }`}
-          onClick={message.type === 'unlock_contact' && message.unlockedContactName && onUnlockContactClick 
-            ? () => onUnlockContactClick(message.unlockedContactName!)
-            : undefined}
-        >
-          {renderMessageContent()}
-        </div>
+    <div className={`flex ${message.type === 'end_thread' ? 'justify-center' : isFromPlayer ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-xs lg:max-w-md ${message.type === 'end_thread' ? 'w-full' : isFromPlayer ? 'order-2' : 'order-1'}`}>
+        {message.type === 'end_thread' ? (
+          <div className="text-center py-2">
+            {renderMessageContent()}
+          </div>
+        ) : (
+          <div
+            className={`rounded-2xl px-4 py-2 shadow-sm ${
+              message.type === 'unlock_contact'
+                ? 'bg-green-600 text-white hover:bg-green-700 transition-colors cursor-pointer'
+                : isFromPlayer
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-700 text-white'
+            }`}
+            onClick={message.type === 'unlock_contact' && message.unlockedContactName && onUnlockContactClick 
+              ? () => onUnlockContactClick(message.unlockedContactName!)
+              : undefined}
+          >
+            {renderMessageContent()}
+          </div>
+        )}
         
         {/* Timestamp */}
-        {isLastInGroup && message.type !== 'unlock_contact' && (
+        {isLastInGroup && message.type !== 'unlock_contact' && message.type !== 'end_thread' && (
           <div className={`text-xs text-gray-400 mt-1 ${isFromPlayer ? 'text-right' : 'text-left'}`}>
             {timestamp}
             {isFromPlayer && (

@@ -1,0 +1,202 @@
+:: StoryTitle
+SMS Twee Game 04 - New Format
+
+:: StoryData
+{
+  "ifid": "5A1DCB30-C4C0-4B5E-8421-DCA121F00673",
+  "format": "Harlowe",
+  "format-version": "3.3.9",
+  "start": "Jamie Round-1",
+  "tag-colors": {
+    "DROP_PIN": "green",
+    "END_GAME": "red",
+    "NEW_CONTACT": "green",
+    "SEND_PHOTO": "green",
+    "SEND_VIDEO": "green",
+    "CALL_911": "green"
+  },
+  "zoom": 0.6
+}
+
+:: Jamie Round-1 [Jamie Round-1]
+Hey Jamie, have you heard from Lena? She's not responding to my texts.
+
+[[I barely know her.|Jamie Round-2]]
+[[Did you try calling the cops?|Jamie Round-3]]
+[[Who else was she close with?|Jamie Round-4]]
+
+:: Jamie Round-2 [Jamie Round-2]
+I barely know her.
+
+Oh. Sorry. Just trying to find her. If she messages you—please let me know.
+
+[[Why did you contact me?|Jamie Round-5]]
+[[Did you try calling the cops?|Jamie Round-3]]
+[[Who else was she close with?|Jamie Round-4]]
+
+:: Jamie Round-3 [Jamie Round-3]
+Did you try calling the cops?
+
+Not yet, I was checking her texts for any leads.
+
+[[Well I hope you hear from her soon.|Jamie Round-6]]
+[[I'll try and ask around and see if anyone's heard from her.|Jamie Round-7]]
+[[If I hear anything I'll let you know.|Jamie Round-8]]
+
+:: Jamie Round-4 [Jamie Round-4]
+Who else was she close with?
+
+Oh thank you so much! you should hit up her ex, Maya.
+
+[Action: unlock_contact:Maya Delgado]
+[Action: end_thread:1]
+
+:: Jamie Round-5 [Jamie Round-5]
+Why did you contact me?
+
+Just trying to find her. If she messages you—please let me know.
+
+[[Did you try calling the cops?|Jamie Round-3]]
+[[Who else was she close with?|Jamie Round-4]]
+
+:: Jamie Round-6 [Jamie Round-6]
+Well I hope you hear from her soon.
+
+Thanks, I hope so too.
+
+[Action: end_thread:1]
+
+:: Jamie Round-7 [Jamie Round-7]
+I'll try and ask around and see if anyone's heard from her.
+
+Oh thank you so much! you should hit up her ex, Maya.
+
+[Action: unlock_contact:Maya Delgado]
+[Action: end_thread:1]
+
+:: Jamie Round-8 [Jamie Round-8]
+If I hear anything I'll let you know.
+
+Oh thank you so much! I'll keep asking around too.
+
+[Action: end_thread:1]
+
+:: Maya Round-1 [Maya Round-1]
+Hi Maya, Lena's missing. Have you seen her?
+
+[[I'm Jamie's Friend, we need to talk about Lena.|Maya Round-2]]
+[[Jamie's friend, Lena's missing. You're the last person she saw|Maya Round-2]]
+[[Jamie gave me your number, Lena's missing.|Maya Round-2]]
+
+:: Maya Round-2 [Maya Round-2]
+Who is this?
+
+[[I'm Jamie's Friend, we need to talk about Lena.|Maya Round-3]]
+[[Jamie's friend, Lena's missing. You're the last person she saw|Maya Round-3]]
+[[Jamie gave me your number, Lena's missing.|Maya Round-3]]
+
+:: Maya Round-3 [Maya Round-3]
+Ok, what's up?
+
+[[Tell me where she is!|Maya Round-4]]
+[[Has she spoken to you about anything weird or specific lately?|Maya Round-4]]
+[[What happened between you two?|Maya Round-4]]
+
+:: Maya Round-4 [Maya Round-4]
+Has she spoken to you about anything weird or specific lately?
+
+hmm only about her old hideout. A Freight warehouse by the train tracks.
+Called it her 'escape hatch.' I don't even want to know what she did there.
+
+[Action: drop_pin:Freight Warehouse,An old warehouse by the train tracks - Lena's escape hatch,Map.png]
+
+[[Can you go check?|Maya Round-5]]
+[[Know anyone who knows where it is that would go look?|Maya Round-5]]
+[[You mind going to check it out?|Maya Round-5]]
+
+:: Maya Round-5 [Maya Round-5]
+Can you go check?
+
+Try Eli. They were close. He's dumb enough to go.
+
+[Action: unlock_contact:Eli Mercer]
+[Action: end_thread:1]
+
+:: Maya Round-6 [Maya Round-6]
+Do you have any ideas what Lena would use for a code?
+
+Always the same: 0402. My birthday. She was weirdly sentimental.
+
+[Action: set_variable:hasCode,true]
+
+[[Thanks, that helps a lot.|Maya Round-7]]
+[[That's perfect, thanks.|Maya Round-7]]
+
+:: Maya Round-7 [Maya Round-7]
+Thanks, that helps a lot.
+
+No problem. Hope you find her.
+
+[Action: end_thread:1]
+
+:: Eli Round-1 [Eli Round-1]
+Hi Eli, Maya gave me your number. We're looking for Lena. She's missing.
+
+[[Maya gave me your number, We're looking for Lena. She's missing. We think we know where she might be.|Eli Round-2]]
+[[Maya gave me your number, We're looking for Lena. She's missing.|Eli Round-2]]
+[[We're looking for Lena. She's missing. We think we know where she might be. Can you go checking something for us?|Eli Round-2]]
+
+:: Eli Round-2 [Eli Round-2]
+Help how? Who is this?
+
+[[Maya gave me your number, We're looking for Lena. She's missing. We think we know where she might be.|Eli Round-3]]
+[[Maya gave me your number, We're looking for Lena. She's missing.|Eli Round-3]]
+[[We're looking for Lena. She's missing. We think we know where she might be. Can you go checking something for us?|Eli Round-3]]
+
+:: Eli Round-3 [Eli Round-3]
+We're looking for Lena. She's missing. We think we know where she might be. Can you go checking something for us?
+
+What do you need?
+
+[[Can you go check the warehouse by the train tracks?|Eli Round-4]]
+[[Do you think you can break it open?|Eli Round-5]]
+[[Hang tight. Let me ask around for the combo.|Eli Round-6]]
+
+:: Eli Round-4 [Eli Round-4]
+Can you go check the warehouse by the train tracks?
+
+Yeah, I can do that. What am I looking for?
+
+[[Just see if she's there.|Eli Round-7]]
+[[Check if there's any sign of her.|Eli Round-7]]
+
+:: Eli Round-5 [Eli Round-5]
+Do you think you can break it open?
+
+nah man. I'm out.
+
+[Action: end_thread:1]
+
+:: Eli Round-6 [Eli Round-6]
+Hang tight. Let me ask around for the combo.
+
+k
+
+[Action: set_variable:eli_thread_1_complete,true]
+[Action: end_thread:1]
+
+:: Eli Round-7 [Eli Round-7]
+Just see if she's there.
+
+I'll go check it out.
+
+[Action: end_thread:1]
+
+:: Get Code from Maya [Maya needs_code Round-1]
+(if: $eli_thread_1_complete is true)
+[[Do you have any ideas what Lena would use for a code?|Maya Round-6]]
+
+(if: $eli_thread_1_complete is false)
+You need to talk to Eli first.
+
+[Action: end_thread:1] 

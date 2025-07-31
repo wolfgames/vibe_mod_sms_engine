@@ -1,0 +1,109 @@
+:: StoryTitle
+SMS Script 40 Reformat test1
+
+
+:: StoryData
+{
+  "ifid": "2ffe9be0-d91d-49ef-b9e6-40c722cfe868",
+  "format": "Harlowe",
+  "format-version": "3.3.9",
+  "tag-colors": {
+    "DROP_PIN": "green",
+    "END_GAME": "red",
+    "NEW_CONTACT": "green",
+    "SEND_PHOTO": "green",
+    "SEND_VIDEO": "green",
+    "CALL_911": "green"
+  },
+  "zoom": 0.6
+}
+
+
+:: Round-1 [Jamie initial_contact] {"position":"575,375","size":"100,100"}
+Hey, sorry to message out of nowhere.. I saw you were texting Lena recently. I'm her roommate... Have you heard from her?
+
+[[Not lately. Is something wrong?|Round-2.1]]
+
+[[Yeah, we talked. Who are you?|Round-2.2]]
+
+[[I barely know her.|Round-2.3]]
+
+
+:: Round-2.1 [Jamie] {"position":"800,200","size":"100,100"}
+She’s been gone two days. Didn’t take much—just her hoodie and phone. Didn’t say where she was going. She sometimes vanishes, but this feels off.
+
+
+[[Why did you contact me?|Round-3.1]]
+
+[[Did you try calling the cops?|Round-3.2]]
+
+[[Who else was she close with?|Round-3.3]]
+
+
+:: Round-2.2 [Jamie] {"position":"800,350","size":"100,100"}
+I’m Jamie—her roommate. I was checking her texts for any leads.  Sorry if that’s weird. I’m just worried.
+
+
+[[Why did you contact me?|Round-3.1]]
+
+[[Did you try calling the cops?|Round-3.2]]
+
+[[Who else was she close with?|Round-3.3]]
+
+
+:: Round-2.3 [Jamie] {"position":"800,500","size":"100,100"}
+Oh. Sorry. Just trying to find her. If she messages you—please let me know.
+
+
+[[Why did you contact me?|Round-3.1]]
+
+[[Did you try calling the cops?|Round-3.2]]
+
+[[Who else was she close with?|Round-3.3]]
+
+
+:: Round-3.1 [Jamie] {"position":"1000,200","size":"100,100"}
+I was hoping you might know where she was
+ 
+ 
+ [[Well I hope you hear from her soon.|Round-4.1]]
+ 
+ [[I'll try and ask around and see if anyone's heard from her.|Round-4.3]]
+ 
+ [[If I hear anything I'll let you know.|Round-4.2]]
+
+
+:: Round-3.2 [Jamie] {"position":"1000,350","size":"100,100"}
+Not yet, I was checking her texts for any leads.
+
+ [[Well I hope you hear from her soon.|Round-4.1]]
+ 
+ [[I'll try and ask around and see if anyone's heard from her.|Round-4.3]]
+ 
+ [[If I hear anything I'll let you know.|Round-4.2]]
+
+
+:: Round-3.3 [Jamie] {"position":"1000,500","size":"100,100"}
+I think she was upset about her ex—Maya.You might wanna talk to her.
+
+[Action: unlock_contact:Maya Delgado]
+[Action: end_thread:1]
+
+
+:: Round-4.1 [Jamie] {"position":"1200,200","size":"100,100"}
+Yeah, big help you are. bye.
+
+[Action: end_thread:1]
+
+
+:: Round-4.2 [Jamie] {"position":"1200,350","size":"100,100"}
+Oh thank you so much! I'll keep asking around too.
+
+[Action: end_thread:1]
+
+
+:: Round-4.3 [Jamie] {"position":"1200,500","size":"100,100"}
+Oh thank you so much! you should hit up her ex, Maya.
+
+[Action: unlock_contact:Maya Delgado]
+[Action: end_thread:1]
