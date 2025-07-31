@@ -1,4 +1,5 @@
-import { TweeParser, ParserResult } from '../parser/types';
+import { TweeParser } from '../parser/tweeParser';
+import { ParserResult } from '../parser/types';
 import { GameData } from '../parser/types';
 
 export class ScriptLoader {

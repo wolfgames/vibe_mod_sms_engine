@@ -78,7 +78,7 @@ export function ConfigForm<T>({
       // Use utility functions passed as props
       const configString = encodeConfig(result.data)
 
-      console.log("Submitting config:", result.data)
+      // Config submitted
 
       onSubmit(result.data as T, configString, '')
     } catch (error) {
@@ -193,7 +193,7 @@ export function ConfigForm<T>({
 
       if (!result.success) {
         const errors = result.errors as Record<string, string>
-        console.log({errors})
+        // Form errors
         setErrors(errors)
         if (onValidationError) {
           onValidationError(errors)

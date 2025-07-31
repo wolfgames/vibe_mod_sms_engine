@@ -17,6 +17,13 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
   const [gameState, setGameState] = useState<GameState>(gameEngine.getGameState());
   const [showDebugPanel, setShowDebugPanel] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [typingDelay, setTypingDelay] = useState(0); // Initialize with 0, don't call gameEngine here
+  const [notifications, setNotifications] = useState<GameState['notifications']>(gameEngine.getNotifications());
+
+  // Sync typing delay with game engine on mount
+  useEffect(() => {
+    setTypingDelay(gameEngine.getGlobalTypingDelay());
+  }, []);
 
   useEffect(() => {
     const handleMessageAdded = (message: Message) => {
@@ -36,7 +43,21 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
     };
 
     const handleActionExecuted = (action: any) => {
-      console.log('Action executed:', action);
+      // Action executed
+    };
+
+    const handleCharacterUnlocked = (event: CustomEvent) => {
+      setGameState(gameEngine.getGameState());
+    };
+
+    const handleNotificationAdded = (event: CustomEvent) => {
+      setNotifications(gameEngine.getNotifications());
+      
+      // Auto-remove notification after 3 seconds
+      setTimeout(() => {
+        gameEngine.clearNotifications();
+        setNotifications(gameEngine.getNotifications());
+      }, 3000);
     };
 
     // Set up event listeners
@@ -45,6 +66,10 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
     gameEngine.events.onThreadStateChanged = handleThreadStateChanged;
     gameEngine.events.onVariableChanged = handleVariableChanged;
     gameEngine.events.onActionExecuted = handleActionExecuted;
+
+    // Set up window event listeners
+    window.addEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
+    window.addEventListener('notification-added', handleNotificationAdded as EventListener);
 
     // Don't auto-select first contact - start on Messages list
     // const unlockedContacts = gameEngine.getUnlockedContacts();
@@ -59,6 +84,10 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
       gameEngine.events.onThreadStateChanged = () => {};
       gameEngine.events.onVariableChanged = () => {};
       gameEngine.events.onActionExecuted = () => {};
+      
+      // Cleanup window event listeners
+      window.removeEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
+      window.removeEventListener('notification-added', handleNotificationAdded as EventListener);
     };
   }, [gameEngine, selectedContact]);
 
@@ -74,14 +103,22 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
   const handleContactSelect = (contactName: string) => {
     setSelectedContact(contactName);
     
+    // Mark messages as read when entering conversation
+    gameEngine.markContactMessagesAsRead(contactName);
+    
     // Initialize conversation if no messages exist yet
     const messages = gameEngine.getContactMessages(contactName);
     if (messages.length === 0) {
-      const contact = gameData.contacts[contactName];
-      const round1 = contact.rounds[1];
-      if (round1) {
-        // Add the initial message from the Twee script
-        gameEngine.addMessage(contactName, round1.passage, false);
+      const contact = gameEngine.getContactData(contactName);
+      // Safety check: ensure contact exists and has rounds
+      if (contact && contact.rounds && contact.rounds[1]) {
+        const round1 = contact.rounds[1];
+        if (round1 && round1.passage && round1.passage.trim()) {
+          // Only add initial message if there's actual content
+          gameEngine.addMessage(contactName, round1.passage, false);
+        }
+      } else {
+        console.warn(`Contact ${contactName} not found in gameData or missing rounds`);
       }
     }
   };
@@ -96,6 +133,11 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
     }
   };
 
+  const handleUnlockContactClick = (contactName: string) => {
+    // Navigate to the unlocked contact
+    handleContactSelect(contactName);
+  };
+
   const handleResetGame = () => {
     gameEngine.resetGame();
     setGameState(gameEngine.getGameState());
@@ -106,6 +148,18 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
 
   return (
     <div className="flex h-screen bg-gray-900">
+      <style jsx>{`
+        @keyframes slideInRight {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
       {/* Debug Controls - Outside iPhone Frame */}
       <div className="absolute top-4 left-4 z-50 flex space-x-2">
         <button
@@ -114,12 +168,13 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
         >
           {showDebugPanel ? 'Hide' : 'Show'} Debug
         </button>
-        <button
-          onClick={handleResetGame}
-          className="px-3 py-2 bg-red-500 rounded-lg text-sm text-white hover:bg-red-600 transition-colors shadow-lg"
-        >
-          Reset
-        </button>
+                 <button
+           onClick={handleResetGame}
+           className="px-3 py-2 bg-red-500 rounded-lg text-sm text-white hover:bg-red-600 transition-colors shadow-lg"
+         >
+           Reset
+         </button>
+         
         {onScriptReload && (
           <button
             onClick={onScriptReload}
@@ -130,94 +185,147 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
         )}
       </div>
 
-      {/* Debug Panel - Outside iPhone Frame */}
-      {showDebugPanel && (
-        <div className="absolute top-16 left-4 w-80 bg-gray-900 border border-gray-700 rounded-lg p-4 overflow-y-auto z-50 shadow-2xl">
-          <h3 className="text-lg font-semibold mb-4 text-white">Debug Panel</h3>
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-medium mb-2 text-gray-300">Variables</h4>
-              <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
-                {JSON.stringify(gameState.variables, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2 text-gray-300">Current Rounds</h4>
-              <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
-                {JSON.stringify(gameState.currentRounds, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <h4 className="font-medium mb-2 text-gray-300">Thread States</h4>
-              <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
-                {JSON.stringify(gameState.threadStates, null, 2)}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
+             {/* Debug Panel - Outside iPhone Frame */}
+       {showDebugPanel && (
+         <div className="absolute top-16 left-4 w-80 bg-gray-900 border border-gray-700 rounded-lg p-4 overflow-y-auto z-50 shadow-2xl">
+           <h3 className="text-lg font-semibold mb-4 text-white">Debug Panel</h3>
+           <div className="space-y-4">
+             <div>
+               <h4 className="font-medium mb-2 text-gray-300">Variables</h4>
+               <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
+                 {JSON.stringify(gameState.variables, null, 2)}
+               </pre>
+             </div>
+             <div>
+               <h4 className="font-medium mb-2 text-gray-300">Current Rounds</h4>
+               <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
+                 {JSON.stringify(gameState.currentRounds, null, 2)}
+               </pre>
+             </div>
+             <div>
+               <h4 className="font-medium mb-2 text-gray-300">Thread States</h4>
+               <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
+                 {JSON.stringify(gameState.threadStates, null, 2)}
+               </pre>
+             </div>
+             <div>
+               <h4 className="font-medium mb-2 text-gray-300">Typing Delay (ms)</h4>
+               <div className="flex items-center space-x-2">
+                 <input
+                   type="range"
+                   min="0"
+                   max="5000"
+                   step="100"
+                   value={typingDelay}
+                   onChange={(e) => {
+                     const newDelay = Number(e.target.value);
+                     setTypingDelay(newDelay);
+                     gameEngine.setGlobalTypingDelay(newDelay);
+                   }}
+                   className="flex-1"
+                 />
+                 <span className="text-white text-sm w-16">{typingDelay}</span>
+               </div>
+             </div>
+             <div>
+               <h4 className="font-medium mb-2 text-gray-300">Notifications</h4>
+               <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
+                 {JSON.stringify(notifications, null, 2)}
+               </pre>
+             </div>
+           </div>
+         </div>
+       )}
+
+
 
              {/* iPhone Frame - Centered */}
        <div className="flex-1 flex items-center justify-center">
-         <div className="relative w-80 h-[600px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border-4 border-gray-800">
+                   <div className="relative w-80 h-[660px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border-4 border-gray-800">
            {/* iPhone Screen */}
            <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden relative">
                            {/* Status Bar */}
-              <div className="absolute top-0 left-0 right-0 h-7 bg-black z-10 flex items-center justify-between px-6 text-white text-xs font-medium">
-                <span>{currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <div className="flex items-center space-x-1">
-                  <div className="w-5 h-2 bg-white rounded-sm"></div>
-                  <div className="w-1 h-1 bg-white rounded-full"></div>
-                  <div className="w-1 h-1 bg-white rounded-full"></div>
-                  <div className="w-1 h-1 bg-white rounded-full"></div>
+              <div className="absolute top-2 left-4 z-20 text-white text-sm font-medium">
+                {currentTime.toLocaleTimeString('en-US', { 
+                  hour: 'numeric', 
+                  minute: '2-digit',
+                  hour12: true 
+                })}
+              </div>
+              
+              {/* Status bar icons in upper right */}
+              <div className="absolute top-2 right-4 z-20 flex items-center space-x-1">
+                {/* Cellular signal */}
+                <div className="flex items-end space-x-0.5">
+                  <div className="w-1 h-1 bg-white rounded-sm"></div>
+                  <div className="w-1 h-2 bg-white rounded-sm"></div>
+                  <div className="w-1 h-3 bg-white rounded-sm"></div>
+                  <div className="w-1 h-4 bg-white rounded-sm"></div>
+                </div>
+                
+                {/* Battery */}
+                <div className="ml-2 flex items-center">
+                  <div className="w-6 h-3 border border-white rounded-sm relative">
+                    <div className="absolute left-0.5 top-0.5 bottom-0.5 w-4 bg-white rounded-sm"></div>
+                    <div className="absolute -right-1 top-0.5 bottom-0.5 w-0.5 bg-white rounded-r-sm"></div>
+                  </div>
+                  <span className="ml-1 text-white text-xs font-medium">67%</span>
                 </div>
               </div>
 
-             {/* Main SMS Interface */}
-             <div className="flex flex-col h-full bg-black pt-7">
-               {/* Header */}
-               <div className="bg-black px-4 py-3 flex items-center justify-between border-b border-gray-800">
-                 <div className="flex items-center space-x-3">
-                   <h1 className="text-lg font-semibold text-white">Messages</h1>
-                   <span className="text-sm text-gray-400">
-                     {unlockedContacts.length} conversation{unlockedContacts.length !== 1 ? 's' : ''}
-                   </span>
-                 </div>
-                 <div className="flex items-center space-x-2">
-                   <button className="text-white text-lg">
-                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                       <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                           {/* Main SMS Interface */}
+              <div className="flex flex-col h-full bg-black">
+                                 {/* Top bar */}
+                                   <div className="relative flex items-center justify-center h-14 border-b border-neutral-800 bg-black">
+                    <span className="text-lg font-semibold text-white" style={{ marginTop: '20px' }}>Messages</span>
+                                       <button className="absolute right-4 top-1/2 -translate-y-1/2 p-1" style={{ marginTop: '10px' }}>
+                     {/* Compose icon */}
+                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                       <path d="M12 20h9" stroke="#007AFF" strokeWidth="2" strokeLinecap="round"/>
+                       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L8.5 17.5l-4 1 1-4L16.5 3.5Z" stroke="#007AFF" strokeWidth="2" strokeLinejoin="round"/>
                      </svg>
                    </button>
                  </div>
-               </div>
-
-              {/* Content */}
-              <div className="flex-1 flex">
-                {/* Contact List */}
-                <div className="w-full">
-                  <ContactList
-                    contacts={gameData.contacts}
-                    unlockedContacts={unlockedContacts}
-                    selectedContact={selectedContact}
-                    onContactSelect={handleContactSelect}
-                    threadStates={gameState.threadStates}
-                    messageHistory={gameState.messageHistory}
-                  />
+                
+                {/* Search bar */}
+                <div className="px-3 py-2 bg-black">
+                  <div className="flex items-center bg-neutral-900 rounded-xl px-3 py-2 text-neutral-400">
+                    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" className="mr-2">
+                      <circle cx="11" cy="11" r="7" stroke="#888" strokeWidth="2"/>
+                      <path d="M20 20l-3-3" stroke="#888" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-sm">Search</span>
+                  </div>
                 </div>
+
+               {/* Content */}
+               <div className="flex-1 flex">
+                 {/* Contact List */}
+                 <div className="w-full">
+                   <ContactList
+                     contacts={gameData.contacts}
+                     unlockedContacts={unlockedContacts}
+                     selectedContact={selectedContact}
+                     onContactSelect={handleContactSelect}
+                     threadStates={gameState.threadStates}
+                     messageHistory={gameState.messageHistory}
+                   />
+                 </div>
 
                                  {/* Conversation */}
                  {selectedContact && (
                    <div className="absolute inset-0 bg-black">
-                     <Conversation
-                       contactName={selectedContact}
-                       contact={gameData.contacts[selectedContact]}
-                       messages={gameEngine.getContactMessages(selectedContact)}
-                       currentRound={gameEngine.getCurrentRound(selectedContact)}
-                       threadState={gameEngine.getContactState(selectedContact)}
-                       onChoiceSelect={handleChoiceSelect}
-                       onBack={handleBackToMessages}
-                     />
+                                           <Conversation
+                        contactName={selectedContact}
+                        contact={gameEngine.getContactData(selectedContact) || { name: selectedContact, unlocked: false, playerInitiated: false, rounds: {} }}
+                        messages={gameEngine.getContactMessages(selectedContact)}
+                        currentRound={gameEngine.getCurrentRound(selectedContact)}
+                        threadState={gameEngine.getContactState(selectedContact)}
+                        onChoiceSelect={handleChoiceSelect}
+                        onBack={handleBackToMessages}
+                        typingDelay={typingDelay}
+                        onUnlockContactClick={handleUnlockContactClick}
+                      />
                    </div>
                  )}
               </div>

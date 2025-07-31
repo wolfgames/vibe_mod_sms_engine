@@ -381,7 +381,7 @@ I don't like where this is going and it's none of your business. Bye!
 :: Who else was she close with? [Jamie Round-3] {"position":"1000,500","size":"100,100"}
 I think she was upset about her ex—Maya.You might wanna talk to her.
 
-[Action: unlock_contact:Maya Delgado]
+[Action: unlock_contact:Maya]
 [Action: end_thread]
 
 

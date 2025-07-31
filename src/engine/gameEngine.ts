@@ -9,6 +9,14 @@ export interface GameState {
   messageQueue: QueuedMessage[];
   typingDelays: Record<string, number>;
   gameStartTime: number;
+  notifications: Array<{
+    id: string;
+    type: 'contact_unlocked' | 'message_received' | 'location_added';
+    title: string;
+    message: string;
+    contactName?: string;
+    timestamp: number;
+  }>;
 }
 
 export interface Message {
@@ -17,7 +25,7 @@ export interface Message {
   text: string;
   timestamp: number;
   isFromPlayer: boolean;
-  type: 'text' | 'photo' | 'video' | 'location' | 'typing';
+  type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact';
   mediaUrl?: string;
   caption?: string;
   location?: {
@@ -26,6 +34,7 @@ export interface Message {
     mapFile?: string;
   };
   read: boolean;
+  unlockedContactName?: string; // For unlock_contact messages
 }
 
 export interface QueuedMessage {
@@ -47,12 +56,13 @@ export interface GameEngineEvents {
 export class GameEngine {
   private state: GameState;
   private gameData: GameData;
-  private events: GameEngineEvents;
+  public events: GameEngineEvents;
   private messageQueueTimer: NodeJS.Timeout | null = null;
 
   constructor(gameData: GameData, events: GameEngineEvents) {
     this.gameData = gameData;
     this.events = events;
+    
     this.state = this.initializeState();
     this.loadGameState();
   }
@@ -66,16 +76,43 @@ export class GameEngine {
       }
     }
 
-    return {
+    // Create initial state
+    const initialState: GameState = {
       currentRounds: {},
       variables: { ...this.gameData.variables },
       threadStates: {},
       messageHistory: {},
       unlockedContacts: initiallyUnlocked,
       messageQueue: [],
-      typingDelays: {},
-      gameStartTime: Date.now()
+      typingDelays: { global: 0 }, // Initialize with 0ms delay
+      gameStartTime: Date.now(),
+      notifications: []
     };
+
+    // Set up Jamie as the starting contact with initial message
+    if (this.gameData.contacts['Jamie']) {
+      initialState.unlockedContacts.add('Jamie');
+      initialState.currentRounds['Jamie'] = 1;
+      
+      // Add initial message from Jamie using round 1 passage
+      const jamieContact = this.gameData.contacts['Jamie'];
+      const round1 = jamieContact.rounds[1];
+      if (round1 && round1.passage) {
+        const initialMessage: Message = {
+          id: `msg_${Date.now()}_initial`,
+          contactName: 'Jamie',
+          text: round1.passage,
+          timestamp: Date.now(),
+          isFromPlayer: false,
+          type: 'text',
+          read: false
+        };
+        
+        initialState.messageHistory['Jamie'] = [initialMessage];
+      }
+    }
+
+    return initialState;
   }
 
   // Core game functions
@@ -84,6 +121,11 @@ export class GameEngine {
     if (!contact) return false;
 
     const currentRound = this.state.currentRounds[contactName] || 1;
+    // Ensure we can't skip rounds - must progress sequentially
+    if (currentRound < 1) {
+      this.state.currentRounds[contactName] = 1;
+    }
+    
     const round = contact.rounds[currentRound];
     if (!round || choiceIndex >= round.choices.length) return false;
 
@@ -92,28 +134,108 @@ export class GameEngine {
     // Add player message to history
     this.addMessage(contactName, choice.text, true);
 
-    // Execute actions for this round
-    this.executeActions(round.actions);
-
-    // Move to next round
-    this.state.currentRounds[contactName] = currentRound + 1;
-
-    // Check if there's a next round
-    const nextRound = contact.rounds[currentRound + 1];
-    if (nextRound) {
-      // Add contact's response
-      this.addMessage(contactName, nextRound.passage, false);
+    // Find the correct response based on the choice made
+    const responsePassage = this.findResponseForChoice(contact, choice, currentRound);
+    
+    // Execute actions from the target passage
+    if (responsePassage) {
+             // For Jamie, we need to handle specific choice-to-action mappings
+       if (contact.name === 'Jamie' && currentRound === 2) {
+         if (choice.text === 'Who else was she close with?') {
+           // This choice should trigger the unlock action
+           this.executeAction({
+             type: 'unlock_contact',
+             parameters: { contactName: 'Maya' }
+           });
+         }
+       }
       
-      // Execute actions for next round
-      this.executeActions(nextRound.actions);
+      // Find the target passage that contains the actions
+      for (const [roundNum, round] of Object.entries(contact.rounds)) {
+        if (round.passage && round.passage.includes(responsePassage)) {
+          if (round.actions && round.actions.length > 0) {
+            this.executeActions(round.actions);
+          }
+          break;
+        }
+      }
+    }
+    
+    if (responsePassage) {
+      // Advance to the next round
+      this.state.currentRounds[contactName] = currentRound + 1;
+      
+      // Add contact's response after the typing indicator finishes
+      const delay = this.getGlobalTypingDelay();
+      setTimeout(() => {
+        this.addMessage(contactName, responsePassage, false);
+      }, delay);
     } else {
-      // End thread if no more rounds
+      // End thread if no response found
       this.state.threadStates[contactName] = 'ended';
       this.events.onThreadStateChanged(contactName, 'ended');
     }
 
     this.saveGameState();
     return true;
+  }
+
+  private findResponseForChoice(contact: Contact, choice: any, currentRound: number): string | null {
+    const choiceText = choice.text.trim();
+    
+    // For Jamie, we need to map specific choices to their correct responses
+    if (contact.name === 'Jamie') {
+      // Round 1 choices -> Round 2 responses
+      if (currentRound === 1) {
+        const nextRound = contact.rounds[2];
+        if (nextRound && nextRound.passage) {
+          return nextRound.passage;
+        }
+      }
+      
+      // Round 2 choices -> Round 3 responses (specific mapping)
+      if (currentRound === 2) {
+        if (choiceText === 'Why did you contact me?') {
+          return 'I was hoping you might know where she was';
+        } else if (choiceText === 'Did you try calling the cops?') {
+          return 'Not yet, I was checking her texts for any leads.';
+        } else if (choiceText === 'Who else was she close with?') {
+          return 'I think she was upset about her ex—Maya. You might wanna talk to her.';
+        }
+      }
+      
+      // Round 3 choices -> specific responses
+      if (currentRound === 3) {
+        if (choiceText === 'Who else was she close with?') {
+          return 'I think she was upset about her ex—Maya. You might wanna talk to her.';
+        } else if (choiceText === 'Why did you contact me?') {
+          return 'I was hoping you might know where she was';
+        } else if (choiceText === 'Did you try calling the cops?') {
+          return 'Not yet, I was checking her texts for any leads.';
+        }
+      }
+    }
+    
+    // Fallback: try to find any response in the next round
+    const nextRoundNumber = currentRound + 1;
+    const nextRound = contact.rounds[nextRoundNumber];
+    
+    if (nextRound && nextRound.passage) {
+      return nextRound.passage;
+    }
+    
+    return null;
+  }
+
+  private findNextRound(contact: Contact, currentRound: number): number | null {
+    // Get all available round numbers and sort them
+    const availableRounds = Object.keys(contact.rounds)
+      .map(Number)
+      .filter(round => round > currentRound)
+      .sort((a, b) => a - b);
+    
+    // Return the next available round, or null if none exist
+    return availableRounds.length > 0 ? availableRounds[0] : null;
   }
 
   evaluateConditions(contactName: string): boolean {
@@ -140,7 +262,16 @@ export class GameEngine {
 
     switch (action.type) {
       case 'unlock_contact':
-        this.unlockContact(action.parameters.contactName as string);
+        const contactToUnlock = action.parameters.contactName as string;
+        if (contactToUnlock) {
+          this.unlockContact(contactToUnlock);
+          // Dispatch event for UI updates
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('character-unlocked', {
+              detail: { character: contactToUnlock }
+            }));
+          }
+        }
         break;
       
       case 'end_thread':
@@ -208,9 +339,59 @@ export class GameEngine {
     return null;
   }
 
-  private unlockContact(contactName: string): void {
-    this.state.unlockedContacts.add(contactName);
-    this.events.onContactUnlocked(contactName);
+  unlockContact(contactName: string): void {
+    if (!this.state.unlockedContacts.has(contactName)) {
+      this.state.unlockedContacts.add(contactName);
+      // Ensure newly unlocked contacts start on round 1
+      if (!this.state.currentRounds[contactName]) {
+        this.state.currentRounds[contactName] = 1;
+      }
+      
+      // Initialize empty message history for the newly unlocked contact
+      if (!this.state.messageHistory[contactName]) {
+        this.state.messageHistory[contactName] = [];
+      }
+      
+      // Add green bubble notification to the current active conversation
+      // Find the current active conversation (the one that triggered the unlock)
+      for (const [activeContact, messages] of Object.entries(this.state.messageHistory)) {
+        if (messages.length > 0) {
+          // Add the unlock notification to the active conversation
+          this.addMessage(
+            activeContact,
+            `${contactName} is now available to chat with`,
+            false,
+            'unlock_contact',
+            undefined,
+            undefined,
+            undefined,
+            contactName
+          );
+          break; // Only add to the first active conversation
+        }
+      }
+      
+      this.events.onContactUnlocked(contactName);
+      this.saveGameState();
+    } else {
+      // Contact already unlocked
+    }
+  }
+
+  private addNotification(notification: Omit<GameState['notifications'][0], 'id'>): void {
+    const newNotification = {
+      ...notification,
+      id: `notification_${Date.now()}_${Math.random()}`
+    };
+    
+    this.state.notifications.push(newNotification);
+    
+    // Dispatch notification event for UI
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('notification-added', {
+        detail: newNotification
+      }));
+    }
   }
 
   private queueDelayedMessage(action: Action): void {
@@ -361,9 +542,24 @@ export class GameEngine {
     this.state.typingDelays.global = delay;
   }
 
+  setGlobalTypingDelay(delay: number): void {
+    this.state.typingDelays.global = delay;
+    // Save the state immediately to persist the delay
+    this.saveGameState();
+  }
+
+  getGlobalTypingDelay(): number {
+    return this.state.typingDelays.global || 0;
+  }
+
   private markConversationRead(contactName: string): void {
     const messages = this.state.messageHistory[contactName] || [];
     messages.forEach(msg => msg.read = true);
+    this.saveGameState();
+  }
+
+  markContactMessagesAsRead(contactName: string): void {
+    this.markConversationRead(contactName);
   }
 
   private showNotification(action: Action): void {
@@ -388,7 +584,6 @@ export class GameEngine {
 
   private triggerEmergencyCall(): void {
     // TODO: Implement emergency call sequence
-    console.log('Emergency call triggered!');
   }
 
   private sortMessageQueue(): void {
@@ -434,10 +629,11 @@ export class GameEngine {
     contactName: string,
     text: string,
     isFromPlayer: boolean,
-    type: 'text' | 'photo' | 'video' | 'location' | 'typing' = 'text',
+    type: 'text' | 'photo' | 'video' | 'location' | 'typing' | 'unlock_contact' = 'text',
     mediaUrl?: string,
     caption?: string,
-    location?: Message['location']
+    location?: Message['location'],
+    unlockedContactName?: string
   ): void {
     if (!this.state.messageHistory[contactName]) {
       this.state.messageHistory[contactName] = [];
@@ -453,7 +649,8 @@ export class GameEngine {
       mediaUrl,
       caption,
       location,
-      read: false
+      read: false,
+      unlockedContactName
     };
 
     this.state.messageHistory[contactName].push(message);
@@ -464,6 +661,15 @@ export class GameEngine {
     return { ...this.state };
   }
 
+  getNotifications(): GameState['notifications'] {
+    return [...this.state.notifications];
+  }
+
+  clearNotifications(): void {
+    this.state.notifications = [];
+    this.saveGameState();
+  }
+
   getContactMessages(contactName: string): Message[] {
     return this.state.messageHistory[contactName] || [];
   }
@@ -472,12 +678,29 @@ export class GameEngine {
     return Array.from(this.state.unlockedContacts);
   }
 
+  getContactData(contactName: string): Contact | null {
+    // First try to get from gameData
+    const contact = this.gameData.contacts[contactName];
+    if (contact) {
+      return contact;
+    }
+    
+    // If not in gameData but is unlocked, return null to prevent empty bubbles
+    // The contact should be properly defined in the Twee script
+    return null;
+  }
+
   getContactState(contactName: string): 'active' | 'locked' | 'ended' {
     return this.state.threadStates[contactName] || 'active';
   }
 
   getCurrentRound(contactName: string): number {
-    return this.state.currentRounds[contactName] || 1;
+    const round = this.state.currentRounds[contactName];
+    // Ensure we always start on round 1 and progress sequentially
+    if (!round || round < 1) {
+      return 1;
+    }
+    return round;
   }
 
   getVariable(name: string): any {
@@ -508,8 +731,13 @@ export class GameEngine {
       const saved = localStorage.getItem('sms_game_state');
       if (saved) {
         const parsed = JSON.parse(saved);
+        
+        // Store the current typing delay before merging state
+        const currentTypingDelay = this.state.typingDelays.global;
+        
         // Merge with current state, preserving new game data
         this.state = { ...this.state, ...parsed };
+        
         // Restore Set objects - handle both array and object formats
         if (parsed.unlockedContacts) {
           if (Array.isArray(parsed.unlockedContacts)) {
@@ -523,6 +751,14 @@ export class GameEngine {
         } else {
           this.state.unlockedContacts = new Set();
         }
+        
+        // Only preserve the current typing delay if it's been explicitly set by the user
+        // Otherwise, use the saved value or default
+        if (currentTypingDelay !== undefined && currentTypingDelay !== 2000) {
+          this.state.typingDelays.global = currentTypingDelay;
+        } else if (parsed.typingDelays && parsed.typingDelays.global !== undefined) {
+          this.state.typingDelays.global = parsed.typingDelays.global;
+        }
       }
     } catch (error) {
       console.warn('Failed to load game state:', error);
@@ -532,11 +768,25 @@ export class GameEngine {
   resetGame(): void {
     this.state = this.initializeState();
     localStorage.removeItem('sms_game_state');
+    // Trigger events to update UI
+    this.events.onContactUnlocked('Jamie');
+    if (this.state.messageHistory['Jamie'] && this.state.messageHistory['Jamie'].length > 0) {
+      this.events.onMessageAdded(this.state.messageHistory['Jamie'][0]);
+    }
   }
 
   updateGameData(newGameData: GameData): void {
     this.gameData = newGameData;
     // Preserve current state but update variables
     this.state.variables = { ...newGameData.variables, ...this.state.variables };
+  }
+
+  // Test method to manually trigger an action
+  testAction(actionType: string, parameters: Record<string, any>): void {
+    const action: Action = {
+      type: actionType,
+      parameters
+    };
+    this.executeAction(action);
   }
 } 

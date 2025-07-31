@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Contact, Message } from '../parser/types';
+import { Contact } from '../parser/types';
+import { Message } from '../engine/gameEngine';
 import MessageBubble from './MessageBubble';
-import ChoiceButtons from './ChoiceButtons';
 
 interface ConversationProps {
   contactName: string;
@@ -13,6 +13,8 @@ interface ConversationProps {
   threadState: 'active' | 'locked' | 'ended';
   onChoiceSelect: (choiceIndex: number) => void;
   onBack: () => void;
+  typingDelay?: number;
+  onUnlockContactClick?: (contactName: string) => void;
 }
 
 export default function Conversation({
@@ -22,10 +24,13 @@ export default function Conversation({
   currentRound,
   threadState,
   onChoiceSelect,
-  onBack
+  onBack,
+  typingDelay = 2000,
+  onUnlockContactClick
 }: ConversationProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showChoices, setShowChoices] = useState(false);
+  const [showTypingIndicator, setShowTypingIndicator] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -35,7 +40,43 @@ export default function Conversation({
     scrollToBottom();
   }, [messages]);
 
+  // Handle typing indicator timing
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      
+      // Find the next available round (may not be sequential)
+      const availableRounds = Object.keys(contact.rounds)
+        .map(Number)
+        .filter(round => round > currentRound)
+        .sort((a, b) => a - b);
+      const nextRoundNumber = availableRounds.length > 0 ? availableRounds[0] : null;
+      const nextRound = nextRoundNumber ? contact.rounds[nextRoundNumber] : null;
+      
+      // Show typing indicator ONLY when:
+      // Last message is from player (waiting for contact response) AND there's a next round
+      const waitingForResponse = lastMessage && lastMessage.isFromPlayer && nextRound && nextRound.passage;
+      
+      if (waitingForResponse) {
+        setShowTypingIndicator(true);
+        // Hide typing indicator after the delay
+        const timer = setTimeout(() => {
+          setShowTypingIndicator(false);
+        }, typingDelay);
+        
+        return () => clearTimeout(timer);
+      } else {
+        setShowTypingIndicator(false);
+      }
+    }
+  }, [messages, currentRound, contact.rounds, typingDelay]);
+
   const getCurrentChoices = () => {
+    // Safety check: ensure contact exists and has rounds
+    if (!contact || !contact.rounds) {
+      console.warn(`Contact ${contactName} not found or missing rounds`);
+      return [];
+    }
     const round = contact.rounds[currentRound];
     return round?.choices || [];
   };
@@ -94,54 +135,59 @@ export default function Conversation({
     onChoiceSelect(choiceIndex);
   };
 
-  return (
+    return (
     <div className="flex flex-col h-full bg-black">
-             {/* Header */}
-               <div className="bg-black px-4 py-4 flex items-center border-b border-gray-800">
-          <button onClick={onBack} className="text-white text-lg flex-shrink-0 mr-3">
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 mr-3">
+      {/* Grey divider box - from top to messages area */}
+      <div className="w-full h-[82px] bg-gray-800 absolute top-0 left-0 z-0"></div>
+      
+      {/* Back arrow */}
+      <button 
+        onClick={onBack}
+        className="absolute top-9 left-4 z-30 w-8 h-8 flex items-center justify-center bg-black/60 rounded-full hover:bg-black/80 transition cursor-pointer"
+        style={{ pointerEvents: 'auto' }}
+      >
+        <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+          <path d="M15 19l-7-7 7-7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {/* Top bar with avatar */}
+      <div className="h-[80px] flex flex-col items-center justify-center w-full bg-transparent relative z-10 pt-4">
+        <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center overflow-hidden mb-1">
+          <div className="w-full h-full bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
             {contactName.charAt(0).toUpperCase()}
           </div>
-          <div className="flex-1 ml-2">
-            <h2 className="text-lg font-semibold text-white">{contactName}</h2>
-            <p className="text-sm text-gray-400">
-              {threadState === 'active' && 'online'}
-              {threadState === 'locked' && 'conversation locked'}
-              {threadState === 'ended' && 'conversation ended'}
-            </p>
-          </div>
         </div>
+        <span className="text-white font-semibold text-sm">{contactName}</span>
+      </div>
 
-             {/* Messages */}
-       <div className="flex-1 overflow-y-auto px-4 py-2 scrollbar-hide">
+      {/* Messages area */}
+          <div className="flex-1 w-full px-4 py-2 pb-16 flex flex-col gap-2 overflow-y-auto">
         {messageGroups.map((group, groupIndex) => (
           <div key={groupIndex}>
-            {/* Date header */}
-            <div className="flex justify-center my-4">
-              <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full">
-                {formatDateHeader(group.date)}
-              </span>
-            </div>
-
-            {/* Messages in this group */}
-            {group.messages.map((message, messageIndex) => (
-              <div key={message.id} className="mb-4">
-                <MessageBubble
-                  message={message}
-                  timestamp={formatTimestamp(message.timestamp)}
-                  isLastInGroup={messageIndex === group.messages.length - 1}
-                />
+                                                   {/* Date header */}
+              <div className="flex justify-center my-1">
+                <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full">
+                  {formatDateHeader(group.date)}
+                </span>
               </div>
-            ))}
+
+                         {/* Messages in this group */}
+             {group.messages.map((message, messageIndex) => (
+               <div key={message.id} className="mb-2">
+                 <MessageBubble
+                   message={message}
+                   timestamp={formatTimestamp(message.timestamp)}
+                   isLastInGroup={messageIndex === group.messages.length - 1}
+                   onUnlockContactClick={onUnlockContactClick}
+                 />
+               </div>
+             ))}
           </div>
         ))}
 
-        {/* Typing indicator - only show when there are choices available (contact is about to respond) */}
-        {threadState === 'active' && currentChoices.length > 0 && (
+        {/* Typing indicator - only show when waiting for contact response after player choice */}
+        {threadState === 'active' && showTypingIndicator && (
           <div className="flex justify-start mb-4">
             <div className="bg-gray-800 rounded-2xl px-4 py-2 shadow-sm border border-gray-700">
               <div className="flex space-x-1">
@@ -166,39 +212,50 @@ export default function Conversation({
         <div ref={messagesEndRef} />
       </div>
 
-                     {/* Choices - only show when toggled */}
-        {threadState === 'active' && currentChoices.length > 0 && showChoices && (
-          <div className="bg-gray-900 border-t border-gray-800 p-4">
-            <ChoiceButtons
-              choices={currentChoices}
-              onChoiceSelect={handleChoiceSelect}
+                           {/* Choices overlay */}
+      {threadState === 'active' && currentChoices.length > 0 && showChoices && (
+        <div className="absolute inset-0 bg-black/50 flex items-end justify-center pb-20" onClick={() => setShowChoices(false)}>
+          <div className="w-full px-4 pb-4" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="text-white text-sm mb-3 font-semibold">Choose your response:</div>
+              <div className="space-y-2">
+                {currentChoices.map((choice, index) => (
+                  <button
+                    key={index}
+                    className="w-full text-left bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-2 text-white transition-colors"
+                    onClick={() => handleChoiceSelect(index)}
+                  >
+                    {choice.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+                                         {/* Input bar */}
+        {threadState === 'active' && (
+          <div className="w-full h-[56px] bg-black/90 flex items-center px-4 gap-2 absolute bottom-0 left-0">
+            <button className="w-8 h-8 flex items-center justify-center">
+              <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
+                <rect x="3" y="5" width="18" height="14" rx="3" fill="#fff"/>
+                <circle cx="8" cy="12" r="2" fill="#bbb"/>
+              </svg>
+            </button>
+            <input 
+              className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 outline-none border-none text-sm"
+              placeholder="iMessage" 
+              onClick={handleInputClick}
+              readOnly
             />
+            <button className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center ml-2">
+              <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
+                <path d="M4 8h8M8 4l4 4-4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
         )}
-
-                    {/* Input bar - always show when thread is active */}
-       {threadState === 'active' && (
-         <div className="bg-gray-900 border-t border-gray-800 p-4">
-           <div className="flex items-center space-x-3">
-             <button className="w-8 h-8 bg-gray-700 rounded-lg flex items-center justify-center">
-               <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
-               </svg>
-             </button>
-             <div 
-               className="flex-1 bg-gray-800 rounded-full px-4 py-2 cursor-pointer"
-               onClick={handleInputClick}
-             >
-               <span className="text-gray-400 text-sm">iMessage</span>
-             </div>
-             <button className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-               <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                 <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-               </svg>
-             </button>
-           </div>
-         </div>
-       )}
     </div>
   );
 } 

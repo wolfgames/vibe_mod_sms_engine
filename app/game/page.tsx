@@ -42,13 +42,23 @@ export default function GamePage() {
         console.warn('Parser warnings:', parseResult.warnings);
       }
 
-      // Create game engine
+      // Create game engine with proper event handlers
       const engine = new GameEngine(parseResult.gameData, {
-        onMessageAdded: () => {},
-        onContactUnlocked: () => {},
-        onThreadStateChanged: () => {},
-        onVariableChanged: () => {},
-        onActionExecuted: () => {}
+        onMessageAdded: (message) => {
+          // This will be handled by the SMSInterface component
+        },
+        onContactUnlocked: (contactName) => {
+          // This will be handled by the SMSInterface component
+        },
+        onThreadStateChanged: (contactName, state) => {
+          // This will be handled by the SMSInterface component
+        },
+        onVariableChanged: (variableName, value) => {
+          // This will be handled by the SMSInterface component
+        },
+        onActionExecuted: (action) => {
+          // This will be handled by the SMSInterface component
+        }
       });
 
       setGameData(parseResult.gameData);

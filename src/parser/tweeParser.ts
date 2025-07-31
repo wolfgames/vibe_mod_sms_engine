@@ -142,10 +142,13 @@ export class TweeParser {
       }
 
       // Extract contact information from tags
-      const contactInfo = this.extractContactInfo(passage);
-      if (contactInfo) {
-        const { contactName, roundNumber, isCharacterStart, isPlayerStart, isUnlocked } = contactInfo;
-        
+      const { contactName, roundNumber } = this.extractContactInfo(passage);
+      
+      if (contactName && roundNumber) {
+        const isCharacterStart = passage.tags.includes('character_starts');
+        const isPlayerStart = passage.tags.includes('player_starts');
+        const isUnlocked = passage.tags.includes('unlocked');
+
         if (!contacts[contactName]) {
           contacts[contactName] = {
             name: contactName,
@@ -194,47 +197,103 @@ export class TweeParser {
     };
   }
 
-  private extractContactInfo(passage: ParsedPassage): {
-    contactName: string;
-    roundNumber: number;
-    isCharacterStart: boolean;
-    isPlayerStart: boolean;
-    isUnlocked: boolean;
-  } | null {
-    // Look for contact tags like [ContactName Round-X] or separate tags [ContactName] [character_starts] [Round-X]
+  private extractContactInfo(passage: ParsedPassage): { contactName: string | null; roundNumber: number | null } {
     let contactName: string | null = null;
     let roundNumber: number | null = null;
     
-    for (const tag of passage.tags) {
-      // Check if this is a contact name (single word, likely capitalized)
-      if (!contactName && /^[A-Z][a-z]+$/.test(tag)) {
-        contactName = tag;
+    // First check the passage title for format [ContactName Round-X]
+    const titleMatch = passage.title.match(/^([A-Z][a-z]+)\s+Round-(\d+)$/);
+    if (titleMatch) {
+      contactName = titleMatch[1];
+      roundNumber = parseInt(titleMatch[2]);
+    }
+    
+    // Check passage title for "Text ContactName" format (fallback)
+    if (!contactName) {
+      const textMatch = passage.title.match(/^Text\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/);
+      if (textMatch) {
+        contactName = textMatch[1];
       }
-      
-      // Check if this is a round number
-      if (!roundNumber) {
-        const roundMatch = tag.match(/^Round-(\d+)$/);
-        if (roundMatch) {
-          roundNumber = parseInt(roundMatch[1]);
+    }
+    
+    // Check tags for various formats - this takes precedence over title extraction
+    for (const tag of passage.tags) {
+        // Check if this tag contains both contact name and round number in format [ContactName Round-X]
+        const tagMatch = tag.match(/^([A-Z][a-z]+)\s+Round-(\d+)$/);
+        if (tagMatch) {
+          contactName = tagMatch[1];
+          roundNumber = parseInt(tagMatch[2]);
+          break;
+        }
+        
+        // Check for format [ContactName player_starts Round-X]
+        const playerStartsMatch = tag.match(/^([A-Z][a-z]+)\s+player_starts\s+Round-(\d+)$/);
+        if (playerStartsMatch) {
+          contactName = playerStartsMatch[1];
+          roundNumber = parseInt(playerStartsMatch[2]);
+          break;
+        }
+        
+        // Check for format [ContactName player_starts initial_contact Round-X]
+        const playerStartsInitialMatch = tag.match(/^([A-Z][a-z]+)\s+player_starts\s+initial_contact\s+Round-(\d+)$/);
+        if (playerStartsInitialMatch) {
+          contactName = playerStartsInitialMatch[1];
+          roundNumber = parseInt(playerStartsInitialMatch[2]);
+          break;
+        }
+        
+        // Check for format [ContactName character_starts Round-X]
+        const characterStartsMatch = tag.match(/^([A-Z][a-z]+)\s+character_starts\s+Round-(\d+)$/);
+        if (characterStartsMatch) {
+          contactName = characterStartsMatch[1];
+          roundNumber = parseInt(characterStartsMatch[2]);
+          break;
+        }
+        
+        // Check for format [ContactName needs_code Round-X]
+        const needsCodeMatch = tag.match(/^([A-Z][a-z]+)\s+needs_code\s+Round-(\d+)$/);
+        if (needsCodeMatch) {
+          contactName = needsCodeMatch[1];
+          roundNumber = parseInt(needsCodeMatch[2]);
+          break;
+        }
+        
+        // Check if this is a contact name (single word, likely capitalized)
+        if (!contactName && /^[A-Z][a-z]+$/.test(tag)) {
+          contactName = tag;
+        }
+        
+        // Check if this is a round number
+        if (!roundNumber) {
+          const roundMatch = tag.match(/^Round-(\d+)$/);
+          if (roundMatch) {
+            roundNumber = parseInt(roundMatch[1]);
+          }
+        }
+      }
+    
+    // Fallback: if contactName is still not found, try to infer from tags that are just names
+    if (!contactName) {
+      for (const tag of passage.tags) {
+        if (/^[A-Z][a-z]+$/.test(tag)) { // Simple capitalized word
+          contactName = tag;
+          break;
         }
       }
     }
     
-    if (contactName && roundNumber) {
-      const isCharacterStart = passage.tags.includes('character_starts');
-      const isPlayerStart = passage.tags.includes('player_starts');
-      const isUnlocked = passage.tags.includes('unlocked');
-
-      return {
-        contactName,
-        roundNumber,
-        isCharacterStart,
-        isPlayerStart,
-        isUnlocked
-      };
+    // Fallback: if roundNumber is still not found, try to infer from tags that are just round numbers
+    if (!roundNumber) {
+      for (const tag of passage.tags) {
+        const roundMatch = tag.match(/^Round-(\d+)$/);
+        if (roundMatch) {
+          roundNumber = parseInt(roundMatch[1]);
+          break;
+        }
+      }
     }
     
-    return null;
+    return { contactName, roundNumber };
   }
 
   private parseRound(passage: ParsedPassage): Round | null {
@@ -292,6 +351,13 @@ export class TweeParser {
 
   private parseActionParameters(paramString: string): Record<string, string | number | boolean> {
     const params: Record<string, string | number | boolean> = {};
+    
+    // Handle simple parameter format like "Eli Mercer" (no key:value pairs)
+    if (!paramString.includes(':')) {
+      // This is a simple value, treat it as contactName
+      params.contactName = paramString.trim();
+      return params;
+    }
     
     // Split by spaces, but respect quoted strings
     const parts = paramString.match(/(?:([^"\s]+)|"([^"]*)")/g) || [];

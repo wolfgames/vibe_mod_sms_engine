@@ -7,12 +7,18 @@ interface MessageBubbleProps {
   message: Message;
   timestamp: string;
   isLastInGroup: boolean;
+  onUnlockContactClick?: (contactName: string) => void;
 }
 
-export default function MessageBubble({ message, timestamp, isLastInGroup }: MessageBubbleProps) {
+export default function MessageBubble({ message, timestamp, isLastInGroup, onUnlockContactClick }: MessageBubbleProps) {
   const [showMedia, setShowMedia] = useState(false);
 
   const isFromPlayer = message.isFromPlayer;
+
+  // Helper function to convert contact name to filename
+  const getAvatarFilename = (contactName: string): string => {
+    return contactName.toLowerCase().replace(/\s+/g, '') + '.png';
+  };
 
   const renderMessageContent = () => {
     switch (message.type) {
@@ -104,6 +110,35 @@ export default function MessageBubble({ message, timestamp, isLastInGroup }: Mes
           </div>
         );
 
+      case 'unlock_contact':
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold">{message.text}</span>
+              <div className="flex items-center ml-2">
+                                                 <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden border border-gray-300">
+                  <img 
+                    src={`/assets/images/avatars/${message.unlockedContactName ? getAvatarFilename(message.unlockedContactName) : 'default.png'}`} 
+                    alt={message.unlockedContactName}
+                    className="w-full h-full object-cover"
+                     onError={(e) => {
+                       const target = e.target as HTMLImageElement;
+                       target.style.display = 'none';
+                       const fallback = document.createElement('div');
+                       fallback.className = 'w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-xs';
+                       fallback.style.backgroundColor = '#4F46E5';
+                       fallback.textContent = message.unlockedContactName?.charAt(0).toUpperCase() || '?';
+                       target.parentNode?.insertBefore(fallback, target);
+                     }}
+                   />
+                 </div>
+                <span className="text-white text-xs ml-1">&gt;</span>
+              </div>
+            </div>
+            <div className="text-xs opacity-80">Tap to open chat</div>
+          </div>
+        );
+
       default:
         return <p className="text-sm">{message.text}</p>;
     }
@@ -114,16 +149,21 @@ export default function MessageBubble({ message, timestamp, isLastInGroup }: Mes
       <div className={`max-w-xs lg:max-w-md ${isFromPlayer ? 'order-2' : 'order-1'}`}>
         <div
           className={`rounded-2xl px-4 py-2 shadow-sm ${
-            isFromPlayer
+            message.type === 'unlock_contact'
+              ? 'bg-green-600 text-white hover:bg-green-700 transition-colors cursor-pointer'
+              : isFromPlayer
               ? 'bg-blue-500 text-white'
               : 'bg-gray-700 text-white'
           }`}
+          onClick={message.type === 'unlock_contact' && message.unlockedContactName && onUnlockContactClick 
+            ? () => onUnlockContactClick(message.unlockedContactName!)
+            : undefined}
         >
           {renderMessageContent()}
         </div>
         
         {/* Timestamp */}
-        {isLastInGroup && (
+        {isLastInGroup && message.type !== 'unlock_contact' && (
           <div className={`text-xs text-gray-400 mt-1 ${isFromPlayer ? 'text-right' : 'text-left'}`}>
             {timestamp}
             {isFromPlayer && (

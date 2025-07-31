@@ -51,10 +51,10 @@ Thanks for playing!
   const parser = new TweeParser();
   const result = parser.parseTweeFile(testScript);
   
-  console.log('Parser Test Results:');
-  console.log('Game Data:', JSON.stringify(result.gameData, null, 2));
-  console.log('Errors:', result.errors);
-  console.log('Warnings:', result.warnings);
+      // Parser test completed
+    // Game Data: Available in result.gameData
+    // Errors: Available in result.errors
+    // Warnings: Available in result.warnings
   
   return result;
 } 
