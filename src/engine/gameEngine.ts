@@ -396,11 +396,86 @@ export class GameEngine {
   }
   
   private handleEndThreadUnified(action: QueuedAction): void {
+    const contactName = action.contactName;
+    const currentRound = this.state.currentRounds[contactName];
+    
+
+    
+    // --- NEW LOGIC: Temporarily apply pending variable changes for conditional check ---
+    const tempVariables = { ...this.state.variables };
+    
+    // Find any set_variable actions in the current queue that haven't been processed yet
+    for (const queuedMessage of this.messageQueue) {
+      if (queuedMessage.type === 'action' && queuedMessage.content.type === 'set_variable') {
+        const varName = queuedMessage.content.parameters.variableName;
+        const varValue = queuedMessage.content.parameters.variableValue;
+        if (varName) {
+          tempVariables[varName] = varValue;
+        }
+      }
+    }
+    // --- END NEW LOGIC ---
+    
+    // Check if this thread should be conditionally unlocked based on current variables
+    const contact = this.gameData.contacts[contactName];
+    
+    if (contact) {
+      // Find all conditional rounds (.0 rounds) for this contact
+      const conditionalRounds = Object.keys(contact.rounds).filter(roundKey => 
+        roundKey.endsWith('.0') && roundKey !== '1.0'
+      ).sort((a, b) => {
+        const aNum = parseInt(a.split('.')[0]);
+        const bNum = parseInt(b.split('.')[0]);
+        return aNum - bNum;
+      });
+      
+
+      
+      // Check each conditional round to see if it has content with current variables
+      for (const roundKey of conditionalRounds) {
+        const round = contact.rounds[roundKey];
+        
+
+        
+        // Use tempVariables instead of current variables for evaluation
+        const reparsedRound = this.reparseRoundWithVariablesUsingTempVariables(round, contactName, tempVariables);
+        
+        const hasPassageContent = reparsedRound.passage && reparsedRound.passage.trim().length > 0;
+        const hasChoices = reparsedRound.choices && reparsedRound.choices.length > 0;
+        
+
+        
+        if (hasPassageContent || hasChoices) {
+
+          return;
+        }
+      }
+    }
+    
+    // Don't end threads that have been conditionally unlocked
+    // Check if this thread was recently unlocked by conditional logic
+    if (currentRound && currentRound.endsWith('.0') && currentRound !== '1.0') {
+
+      return;
+    }
+    
+    // Also check if the thread state is 'active' and we're on a conditional round
+    // This handles the case where the end_thread action is called after the unlock
+    if (this.state.threadStates[contactName] === 'active' && currentRound && currentRound.endsWith('.0') && currentRound !== '1.0') {
+
+      return;
+    }
+    
+
+    
+    // End the thread and show the message
+
     this.state.threadStates[action.contactName] = 'ended';
     this.events.onThreadStateChanged(action.contactName, 'ended');
     
     const showMessage = action.parameters.showMessage !== undefined ? Boolean(action.parameters.showMessage) : true;
     if (showMessage) {
+
       this.addMessage(
         action.contactName,
         'The Conversation Has Ended',
@@ -414,9 +489,12 @@ export class GameEngine {
     const variableName = action.parameters.variableName as string;
     const variableValue = action.parameters.variableValue;
     
+
+    
     if (variableName && variableValue !== undefined) {
       this.setVariable(variableName, variableValue);
       this.events.onVariableChanged(variableName, variableValue);
+
       this.unlockConditionalThreads();
     }
   }
@@ -1287,25 +1365,34 @@ export class GameEngine {
     if (!contact) return null;
 
     const currentRound = this.getCurrentRound(contactName);
+
+    
     const round = contact.rounds[currentRound];
     
     if (!round) return null;
 
     // Re-parse the round with current variables
-    return this.reparseRoundWithVariables(round, contactName);
+    const reparsedRound = this.reparseRoundWithVariables(round, contactName);
+
+    
+    return reparsedRound;
   }
 
   public reparseRoundWithVariables(round: Round, contactName: string): Round {
+    return this.reparseRoundWithVariablesUsingTempVariables(round, contactName, this.state.variables);
+  }
+
+  private reparseRoundWithVariablesUsingTempVariables(round: Round, contactName: string, tempVariables: Record<string, any>): Round {
     const reparsedRound: Round = JSON.parse(JSON.stringify(round));
     const tempParser = new TweeParser();
-    tempParser.setVariables(this.state.variables);
+    tempParser.setVariables(tempVariables);
 
     let passageToEvaluate = reparsedRound.passage && reparsedRound.passage.trim().length > 0
       ? reparsedRound.passage
       : reparsedRound.originalContent || '';
 
-    let processedPassage = this.replaceVariablesInText(passageToEvaluate, contactName);
-    processedPassage = tempParser.evaluateConditionalContent(processedPassage, this.state.variables);
+    let processedPassage = this.replaceVariablesInTextWithTempVariables(passageToEvaluate, contactName, tempVariables);
+    processedPassage = tempParser.evaluateConditionalContent(processedPassage, tempVariables);
     reparsedRound.passage = processedPassage;
 
     // After conditional evaluation, re-parse the passage to extract choices
@@ -1316,10 +1403,11 @@ export class GameEngine {
       reparsedRound.choices = choices;
     }
 
+    // Also process any existing choices for variable replacement
     if (reparsedRound.choices) {
       reparsedRound.choices = reparsedRound.choices.map(choice => {
-        let processedText = this.replaceVariablesInText(choice.text, contactName);
-        processedText = tempParser.evaluateConditionalContent(processedText, this.state.variables);
+        let processedText = this.replaceVariablesInTextWithTempVariables(choice.text, contactName, tempVariables);
+        processedText = tempParser.evaluateConditionalContent(processedText, tempVariables);
         return {
           ...choice,
           text: processedText
@@ -1330,8 +1418,12 @@ export class GameEngine {
   }
 
   private replaceVariablesInText(text: string, contactName: string): string {
+    return this.replaceVariablesInTextWithTempVariables(text, contactName, this.state.variables);
+  }
+
+  private replaceVariablesInTextWithTempVariables(text: string, contactName: string, tempVariables: Record<string, any>): string {
     return text.replace(/\{\{(\w+)\}\}/g, (match, variableName) => {
-      const value = this.state.variables[variableName];
+      const value = tempVariables[variableName];
       return value !== undefined ? String(value) : match;
     });
   }
@@ -1357,26 +1449,105 @@ export class GameEngine {
   }
 
   private unlockConditionalThreads(): void {
+
+    
     for (const contactName in this.gameData.contacts) {
       const contact = this.gameData.contacts[contactName];
-      if (this.state.threadStates[contactName] === 'ended') {
-        // Check if this contact has any conditional .0 rounds
-        const conditionalRounds = Object.keys(contact.rounds).filter(roundKey => 
-          roundKey.endsWith('.0') && contact.rounds[roundKey]
-        );
+      const threadState = this.state.threadStates[contactName];
+      
 
-        for (const roundKey of conditionalRounds) {
-          const round = contact.rounds[roundKey];
-          const reparsedRound = this.reparseRoundWithVariables(round, contactName);
+      
+      // Process threads that are 'ended' or 'locked' (to unlock them)
+      // Also process 'active' threads to update their current rounds to conditional rounds
+      if (threadState !== 'ended' && threadState !== 'locked' && threadState !== 'active') {
+
+        continue;
+      }
+      
+      // Find all conditional rounds (.0 rounds) for this contact
+      const conditionalRounds = Object.keys(contact.rounds).filter(roundKey => 
+        roundKey.endsWith('.0') && roundKey !== '1.0'
+      ).sort((a, b) => {
+        const aNum = parseInt(a.split('.')[0]);
+        const bNum = parseInt(b.split('.')[0]);
+        return aNum - bNum;
+      });
+      
+
+      
+      // Check each conditional round to see if it has content
+      for (const roundKey of conditionalRounds) {
+        const round = contact.rounds[roundKey];
+        
+
+        
+        const reparsedRound = this.reparseRoundWithVariables(round, contactName);
+        
+        // Check if the reparsed round has content (either passage or choices)
+        const hasPassageContent = reparsedRound.passage && reparsedRound.passage.trim().length > 0;
+        const hasChoices = reparsedRound.choices && reparsedRound.choices.length > 0;
+        
+
+        
+        if (hasPassageContent || hasChoices) {
+
           
-          // If the reparsed round has content, unlock the thread
-          if (reparsedRound.passage && reparsedRound.passage.trim().length > 0) {
-            this.state.threadStates[contactName] = 'active';
-            break;
+          // Ensure contact is in unlockedContacts Set
+          if (!this.state.unlockedContacts.has(contactName)) {
+            this.state.unlockedContacts.add(contactName);
           }
+          
+          // Set thread state to active
+          this.state.threadStates[contactName] = 'active';
+          
+          // Set the current round to the conditional round so UI loads the correct content
+          this.state.currentRounds[contactName] = roundKey;
+
+          
+          // Initialize message history if it doesn't exist
+          if (!this.state.messageHistory[contactName]) {
+            this.state.messageHistory[contactName] = [];
+          }
+          
+          // Remove any end_thread messages when unlocking a thread
+          this.state.messageHistory[contactName] = this.state.messageHistory[contactName].filter(
+            message => message.type !== 'end_thread'
+          );
+          
+          // Only add initial message if no messages exist yet
+          if (this.state.messageHistory[contactName].length === 0) {
+            const contactData = this.gameData.contacts[contactName];
+            const round1 = contactData.rounds["1.0"];
+            if (round1 && round1.passage) {
+              const initialMessage: Message = {
+                id: `msg_${Date.now()}_initial_${contactName}`,
+                contactName: contactName,
+                text: round1.passage,
+                timestamp: Date.now(),
+                isFromPlayer: false,
+                type: 'text',
+                read: false
+              };
+              
+              this.state.messageHistory[contactName] = [initialMessage];
+              this.events.onMessageAdded(initialMessage);
+            }
+          }
+          
+          // Trigger UI updates
+          this.events.onContactUnlocked(contactName);
+          this.events.onThreadStateChanged(contactName, 'active');
+          
+          // Save game state
+          this.saveGameState();
+          
+          // Found and unlocked a conditional round, so break out of the loop
+          break;
         }
       }
     }
+    
+
   }
 
   unlockContact(contactName: string): void {

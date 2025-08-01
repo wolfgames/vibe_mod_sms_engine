@@ -304,7 +304,8 @@ export class TweeParser {
           actions.push(action);
         }
       } else if (line.startsWith('[[') && line.endsWith(']]')) {
-        const choiceMatch = line.match(/\[\[(.*?)\|(.*?)\]\]/);
+        // Use a more robust regex that handles commas in choice text
+        const choiceMatch = line.match(/\[\[([^|]*)\|([^\]]*)\]\]/);
         if (choiceMatch) {
           const choiceText = choiceMatch[1].trim();
           const targetRound = choiceMatch[2].trim();
@@ -348,7 +349,8 @@ export class TweeParser {
     let inConditionalBlock = false;
     let currentCondition = false;
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmedLine = line.trim();
       
       // Check for conditional start
@@ -388,6 +390,22 @@ export class TweeParser {
         else if (!isNaN(Number(value))) parsedValue = Number(value);
         
         variables[varName] = parsedValue;
+        continue;
+      }
+
+      // Check if this line starts a new conditional block (which closes the previous one)
+      const nextIfMatch = trimmedLine.match(/^\(if:\s*\$(\w+)\s+is\s+(true|false)\)/);
+      if (nextIfMatch && inConditionalBlock) {
+        // We're starting a new conditional block, so close the current one
+        inConditionalBlock = false;
+        currentCondition = false;
+        
+        // Now process this new conditional
+        const varName = nextIfMatch[1];
+        const expectedValue = nextIfMatch[2] === 'true';
+        const actualValue = variables[varName] === true;
+        currentCondition = actualValue === expectedValue;
+        inConditionalBlock = true;
         continue;
       }
 

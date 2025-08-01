@@ -30,12 +30,35 @@ export default function ContactList({
     
     if (!lastMessage) return '';
     
+
+    
     // Don't show end_thread messages in preview when thread is active
     if (lastMessage.type === 'end_thread' && threadStates[contactName] === 'active') {
       // Find the last non-end_thread message
       for (let i = messages.length - 2; i >= 0; i--) {
         const message = messages[i];
         if (message.type !== 'end_thread') {
+          if (message.type === 'photo') {
+            return message.caption || '📷 Photo';
+          } else if (message.type === 'video') {
+            return message.caption || '🎥 Video';
+          } else if (message.type === 'location') {
+            return '📍 Location';
+          } else if (message.type === 'typing') {
+            return 'typing...';
+          }
+          return message.text;
+        }
+      }
+      return ''; // No previous messages found
+    }
+    
+    // Also handle unlock_contact messages - don't show them in preview
+    if (lastMessage.type === 'unlock_contact') {
+      // Find the last non-unlock_contact message
+      for (let i = messages.length - 2; i >= 0; i--) {
+        const message = messages[i];
+        if (message.type !== 'unlock_contact') {
           if (message.type === 'photo') {
             return message.caption || '📷 Photo';
           } else if (message.type === 'video') {
@@ -163,7 +186,7 @@ export default function ContactList({
                       {lastMessageTime}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-400 truncate">
+                                     <div className="text-sm text-gray-400 truncate">
                     {status === 'locked' || status === 'ended' 
                       ? 'Conversation has ended'
                       : lastMessage || 'Tap to start conversation'}
