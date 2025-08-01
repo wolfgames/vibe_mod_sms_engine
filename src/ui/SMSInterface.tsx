@@ -398,12 +398,12 @@ export default function SMSInterface({
                                                                 <button 
                          onClick={() => {
                            gameEngine.setVariable('eli_thread_1_complete', false);
-                           // Manually lock all threads for testing
-                           const allContacts = Object.keys(gameData.contacts);
-                           allContacts.forEach(contactName => {
-                             gameEngine.state.threadStates[contactName] = 'locked';
-                             gameEngine.events.onThreadStateChanged(contactName, 'locked');
-                           });
+                                                       // Manually lock all threads for testing
+                            const allContacts = Object.keys(gameData.contacts);
+                            allContacts.forEach(contactName => {
+                              // Use public method to set thread state
+                              gameEngine.events.onThreadStateChanged(contactName, 'locked');
+                            });
                          }}
                        className="w-full px-3 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700"
                      >
@@ -411,12 +411,12 @@ export default function SMSInterface({
                      </button>
                      <button 
                        onClick={() => {
-                         // Manually unlock all threads for testing
-                         const allContacts = Object.keys(gameData.contacts);
-                         allContacts.forEach(contactName => {
-                           gameEngine.state.threadStates[contactName] = 'active';
-                           gameEngine.events.onThreadStateChanged(contactName, 'active');
-                         });
+                                                   // Manually unlock all threads for testing
+                          const allContacts = Object.keys(gameData.contacts);
+                          allContacts.forEach(contactName => {
+                            // Use public method to set thread state
+                            gameEngine.events.onThreadStateChanged(contactName, 'active');
+                          });
                        }}
                        className="w-full px-3 py-2 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
                      >
@@ -516,36 +516,47 @@ export default function SMSInterface({
                    <div className="absolute inset-0 bg-black">
                      {(() => {
                        const contact = gameEngine.getContactData(selectedContact);
-                       const currentRound = gameEngine.getCurrentRoundData(selectedContact);
+                       const rawRound = gameEngine.getCurrentRoundData(selectedContact);
+                       
+                       // Only reparse if the round has conditional content (originalContent different from passage)
+                       const needsReparsing = rawRound && 
+                         rawRound.originalContent && 
+                         rawRound.originalContent.trim() !== rawRound.passage?.trim();
+                       
+                       const currentRound = rawRound
+                         ? (needsReparsing 
+                             ? gameEngine.reparseRoundWithVariables(rawRound, selectedContact)
+                             : rawRound)
+                         : null;
                        const contactRounds = contact?.rounds || {};
                        
-                                               const currentRoundNumber = gameEngine.getCurrentRound(selectedContact);
+                       const currentRoundNumber = gameEngine.getCurrentRound(selectedContact);
                 
-                        
-                        return (
-                          <Conversation
-                            key={`${selectedContact}-${currentRound?.passage || 'no-passage'}`}
-                            contactName={selectedContact}
-                            roundNumber={currentRoundNumber}
-                            currentRound={currentRound}
-                            contactRounds={contactRounds}
-                            choices={currentRound?.choices || []}
-                            messages={gameEngine.getContactMessages(selectedContact)}
-                            onChoiceSelect={handleChoiceSelect}
-                            onUnlockContactClick={handleUnlockContactClick}
-                            onBack={handleBackToMessages}
-                            show911Animation={show911Animation}
-                            threadState={gameState.threadStates[selectedContact] || 'active'}
-                          />
-                        );
-                     })()}
-                   </div>
-                 )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-} 
+                       
+                       return (
+                         <Conversation
+                           key={`${selectedContact}-${currentRound?.passage || 'no-passage'}`}
+                           contactName={selectedContact}
+                           roundNumber={currentRoundNumber}
+                           currentRound={currentRound}
+                           contactRounds={contactRounds}
+                           choices={currentRound?.choices || []}
+                           messages={gameEngine.getContactMessages(selectedContact)}
+                           onChoiceSelect={handleChoiceSelect}
+                           onUnlockContactClick={handleUnlockContactClick}
+                           onBack={handleBackToMessages}
+                           show911Animation={show911Animation}
+                           threadState={gameState.threadStates[selectedContact] || 'active'}
+                         />
+                       );
+                    })()}
+                  </div>
+                )}
+             </div>
+           </div>
+         </div>
+       </div>
+     </div>
+   </div>
+ );
+ }

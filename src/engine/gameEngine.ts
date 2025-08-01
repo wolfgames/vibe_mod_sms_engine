@@ -667,11 +667,8 @@ export class GameEngine {
         initialState.unlockedContacts.add(contactName);
       });
       
-      // Ensure Sarah is processed first if she exists
-      let firstContact = unlockedContacts[0];
-      if (unlockedContacts.includes('Sarah')) {
-        firstContact = 'Sarah';
-      }
+      // Use the first unlocked contact as the initial contact
+      const firstContact = unlockedContacts[0];
       
       initialState.currentRounds[firstContact] = "1.0";
       initialState.threadStates[firstContact] = "active";
@@ -1298,23 +1295,37 @@ export class GameEngine {
     return this.reparseRoundWithVariables(round, contactName);
   }
 
-  private reparseRoundWithVariables(round: Round, contactName: string): Round {
-    // Deep clone the round to avoid modifying the original
+  public reparseRoundWithVariables(round: Round, contactName: string): Round {
     const reparsedRound: Round = JSON.parse(JSON.stringify(round));
-    
-    // Replace variables in passage
-    if (reparsedRound.passage) {
-      reparsedRound.passage = this.replaceVariablesInText(reparsedRound.passage, contactName);
+    const tempParser = new TweeParser();
+    tempParser.setVariables(this.state.variables);
+
+    let passageToEvaluate = reparsedRound.passage && reparsedRound.passage.trim().length > 0
+      ? reparsedRound.passage
+      : reparsedRound.originalContent || '';
+
+    let processedPassage = this.replaceVariablesInText(passageToEvaluate, contactName);
+    processedPassage = tempParser.evaluateConditionalContent(processedPassage, this.state.variables);
+    reparsedRound.passage = processedPassage;
+
+    // After conditional evaluation, re-parse the passage to extract choices
+    // Only re-parse if the original choices array is empty (for conditional rounds)
+    if (!reparsedRound.choices || reparsedRound.choices.length === 0) {
+      const tempChoicesParser = new TweeParser();
+      const { choices } = tempChoicesParser.parseRoundContent(processedPassage);
+      reparsedRound.choices = choices;
     }
-    
-    // Replace variables in choices
+
     if (reparsedRound.choices) {
-      reparsedRound.choices = reparsedRound.choices.map(choice => ({
-        ...choice,
-        text: this.replaceVariablesInText(choice.text, contactName)
-      }));
+      reparsedRound.choices = reparsedRound.choices.map(choice => {
+        let processedText = this.replaceVariablesInText(choice.text, contactName);
+        processedText = tempParser.evaluateConditionalContent(processedText, this.state.variables);
+        return {
+          ...choice,
+          text: processedText
+        };
+      });
     }
-    
     return reparsedRound;
   }
 
@@ -1346,72 +1357,22 @@ export class GameEngine {
   }
 
   private unlockConditionalThreads(): void {
-    // Scan all contacts for conditional .0 rounds that might now be unlocked due to variable changes
-    for (const [contactName, contact] of Object.entries(this.gameData.contacts)) {
-      // Check all contacts, not just unlocked ones, since we want to unlock them if conditions are met
+    for (const contactName in this.gameData.contacts) {
+      const contact = this.gameData.contacts[contactName];
+      if (this.state.threadStates[contactName] === 'ended') {
+        // Check if this contact has any conditional .0 rounds
+        const conditionalRounds = Object.keys(contact.rounds).filter(roundKey => 
+          roundKey.endsWith('.0') && contact.rounds[roundKey]
+        );
 
-      // Find conditional .0 rounds for this contact
-      // Now we keep the full round format (e.g., "5.0", "6.0")
-      for (const [roundKey, round] of Object.entries(contact.rounds)) {
-        // Only check rounds that end with .0 (conditional rounds)
-        // This filters out .1, .2, .3 sub-rounds
-        if (!roundKey.endsWith('.0')) {
-          continue;
-        }
-        
-        // Skip Round 1.0 for conditional unlocking - we want the actual conditional rounds
-        if (roundKey === '1.0') {
-          continue;
-        }
-        
-        // Re-parse the round with current variables to see if it's now visible
-        const reparsedRound = this.reparseRoundWithVariables(round, contactName);
-        
-        // If the reparsed round has content (passage or choices), it means the conditional is now true
-        const hasContent = (reparsedRound.passage && reparsedRound.passage.trim()) || 
-                         (reparsedRound.choices && reparsedRound.choices.length > 0);
-        
-        if (hasContent) {
-          // This round is now unlocked due to conditional being true
-          // Check if this is a higher round than the current one
-          const currentRound = this.state.currentRounds[contactName];
-          // Parse round numbers, handling both "6" and "6.0" formats
-          const currentRoundNum = parseFloat(currentRound);
-          const newRoundNum = parseFloat(roundKey);
+        for (const roundKey of conditionalRounds) {
+          const round = contact.rounds[roundKey];
+          const reparsedRound = this.reparseRoundWithVariables(round, contactName);
           
-          // Unlock if this is a higher round number OR if the thread is currently locked
-          const shouldUnlock = newRoundNum > currentRoundNum || this.state.threadStates[contactName] === 'locked';
-          
-          if (shouldUnlock) {
-            // Add contact to unlocked contacts if not already there
-            if (!this.state.unlockedContacts.has(contactName)) {
-              this.state.unlockedContacts.add(contactName);
-            }
-            
-            // Set thread state to active since we're unlocking a new round
+          // If the reparsed round has content, unlock the thread
+          if (reparsedRound.passage && reparsedRound.passage.trim().length > 0) {
             this.state.threadStates[contactName] = 'active';
-            
-            // Remove any thread-ended messages from the conversation history when unlocking
-            const messages = this.state.messageHistory[contactName] || [];
-            let removedCount = 0;
-            const filteredMessages = messages.filter(msg => {
-              // Remove messages that are marked as thread ended OR have the specific end thread text
-              if (msg.isThreadEnded || msg.text === 'The Conversation Has Ended') {
-                removedCount++;
-                return false; // Remove this message
-              }
-              return true; // Keep this message
-            });
-            this.state.messageHistory[contactName] = filteredMessages;
-            
-            this.saveGameState();
-            
-            // Trigger UI update events
-            this.events.onThreadStateChanged(contactName, 'active');
-            this.events.onContactUnlocked(contactName);
-            
-            // Update the current round AFTER triggering events to avoid re-processing
-            this.state.currentRounds[contactName] = roundKey;
+            break;
           }
         }
       }
@@ -1446,118 +1407,5 @@ export class GameEngine {
     // Generate a timestamp that's in the past (1 hour ago)
     return Date.now() - (60 * 60 * 1000);
   }
-
-  private triggerEmergencyCall(): void {
-    // Dispatch event to trigger the 911 call animation
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('call-911-animation', {
-        detail: { timestamp: Date.now() }
-      }));
-    }
-  }
-
-  private executeEmbeddedAction(action: Action, contactName: string): void {
-    // Handle embedded actions as player messages
-    switch (action.type) {
-      case 'drop_pin':
-        this.handleEmbeddedDropPin(action, contactName);
-        break;
-      case 'send_photo':
-        this.handleEmbeddedSendPhoto(action, contactName);
-        break;
-      case 'delayed_message':
-        this.handleEmbeddedDelayedMessage(action, contactName);
-        break;
-      case 'set_variable':
-        this.handleSetVariableUnified({ type: 'set_variable', parameters: action.parameters, delay: 0, priority: 0, contactName, isResponseTriggered: false });
-        break;
-      default:
-        // For other actions, just ignore them in embedded context
-        break;
-    }
-  }
-
-  private handleEmbeddedDropPin(action: Action, contactName: string): void {
-    const location = action.parameters.location as string;
-    const description = action.parameters.description as string;
-    const file = action.parameters.file as string;
-    
-    if (location && description) {
-      // Add as player message immediately
-      this.addMessage(
-        contactName,
-        location,
-        true, // isFromPlayer = true
-        'location',
-        undefined,
-        undefined,
-        {
-          name: location,
-          description: description,
-          mapFile: file
-        }
-      );
-      
-      // Add notification
-      this.addNotification({
-        type: 'location_added',
-        title: 'Location Added',
-        message: `New location: ${location}`,
-        contactName: contactName,
-        timestamp: Date.now()
-      });
-    }
-  }
-
-  private handleEmbeddedSendPhoto(action: Action, contactName: string): void {
-    const file = action.parameters.file as string;
-    const caption = action.parameters.caption as string;
-    const delay = action.parameters.delay as number;
-    
-    if (file && caption) {
-      const imagePath = `/assets/images/${file}`;
-      
-      if (delay) {
-        // Queue delayed photo as player message
-        setTimeout(() => {
-          this.addMessage(
-            contactName,
-            caption,
-            true, // isFromPlayer = true
-            'photo',
-            imagePath,
-            caption
-          );
-        }, delay);
-      } else {
-        // Send immediately as player message
-        this.addMessage(
-          contactName,
-          caption,
-          true, // isFromPlayer = true
-          'photo',
-          imagePath,
-          caption
-        );
-      }
-    }
-  }
-
-  private handleEmbeddedDelayedMessage(action: Action, contactName: string): void {
-    const message = action.parameters.message as string;
-    const delay = action.parameters.delay as number || 0;
-    
-    if (message) {
-      if (delay) {
-        // Queue delayed message as player message
-        setTimeout(() => {
-          this.addMessage(contactName, message, true); // isFromPlayer = true
-        }, delay);
-      } else {
-        // Send immediately as player message
-        this.addMessage(contactName, message, true); // isFromPlayer = true
-      }
-    }
-  }
-} 
+}
 

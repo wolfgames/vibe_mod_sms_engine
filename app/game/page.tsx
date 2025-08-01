@@ -127,11 +127,6 @@ export default function GamePage() {
       
       if (parseResult.errors.length > 0) {
         console.warn('Parser errors:', parseResult.errors);
-        console.warn('Error details:', parseResult.errors.map(err => ({
-          message: err.message,
-          type: err.type,
-          lineNumber: err.lineNumber
-        })));
       }
       
       if (parseResult.warnings.length > 0) {

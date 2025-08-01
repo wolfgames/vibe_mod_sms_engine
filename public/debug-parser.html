@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parser Debug</title>
+</head>
+<body>
+    <h1>Parser Debug</h1>
+    <div id="output"></div>
+    
+    <script type="module">
+        async function debugParser() {
+            try {
+                const output = document.getElementById('output');
+                
+                // Fetch the twee file
+                const response = await fetch('/scripts/SMS Branching43.twee');
+                const content = await response.text();
+                
+                output.innerHTML += '<p>Loading TweeParser...</p>';
+                
+                // Import the parser
+                const { TweeParser } = await import('/src/parser/tweeParser.ts');
+                
+                output.innerHTML += '<p>Parsing file...</p>';
+                
+                // Parse it
+                const parser = new TweeParser();
+                const result = parser.parseTweeFile(content);
+                
+                output.innerHTML += `<p>Total errors: ${result.errors.length}</p>`;
+                output.innerHTML += `<p>Total warnings: ${result.warnings.length}</p>`;
+                
+                if (result.errors.length > 0) {
+                    output.innerHTML += '<h3>=== ERRORS ===</h3>';
+                    result.errors.forEach((error, index) => {
+                        output.innerHTML += `<p><strong>${index + 1}. Line ${error.lineNumber}:</strong> ${error.message}</p>`;
+                        console.log(`Error ${index + 1}:`, error);
+                    });
+                }
+                
+                if (result.warnings.length > 0) {
+                    output.innerHTML += '<h3>=== WARNINGS ===</h3>';
+                    result.warnings.forEach((warning, index) => {
+                        output.innerHTML += `<p><strong>${index + 1}. Line ${warning.lineNumber}:</strong> ${warning.message}</p>`;
+                        console.log(`Warning ${index + 1}:`, warning);
+                    });
+                }
+                
+                // Check if Jamie contact was found
+                const jamieContact = result.gameData.contacts['Jamie'];
+                output.innerHTML += '<h3>=== JAMIE CONTACT ===</h3>';
+                output.innerHTML += `<p>Found: ${!!jamieContact}</p>`;
+                if (jamieContact) {
+                    output.innerHTML += `<p>Initial contact: ${jamieContact.isInitialContact}</p>`;
+                    output.innerHTML += `<p>Rounds: ${Object.keys(jamieContact.rounds).join(', ')}</p>`;
+                }
+                
+                // Log full result to console
+                console.log('Full parser result:', result);
+                
+            } catch (error) {
+                document.getElementById('output').innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Error:', error);
+            }
+        }
+        
+        debugParser();
+    </script>
+</body>
+</html> 

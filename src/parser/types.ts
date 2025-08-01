@@ -21,7 +21,7 @@ export interface Choice {
 }
 
 export interface Action {
-  type: 'unlock_contact' | 'drop_pin' | 'send_photo' | 'send_video' | 'end_thread' | 'call_911' | 'open_thread' | 'delayed_message' | 'trigger_eli_needs_code' | 'typing_indicator' | 'set_typing_delay' | 'show_notification' | 'vibrate' | 'set_contact_status' | 'trigger_emergency_call' | 'set_variable';
+  type: 'unlock_contact' | 'drop_pin' | 'send_photo' | 'send_video' | 'end_thread' | 'call_911' | 'open_thread' | 'delayed_message' | 'trigger_eli_needs_code' | 'typing_indicator' | 'set_typing_delay' | 'show_notification' | 'vibrate' | 'set_contact_status' | 'trigger_emergency_call' | 'set_variable' | 'add_chat_history';
   parameters: Record<string, string | number | boolean>;
   // Add specific fields for better type safety
   character?: string;

@@ -249,13 +249,39 @@ Initial message from this contact.
 - **String:** `$variable_name` ("text value")
 
 ### Conditional Content
+The engine supports Harlowe conditional syntax for dynamic content:
+
 ```
 (if: $variable_name is true)
 This content only shows if variable is true
+(else:)
+This content shows if variable is false
 ```
 
+**Conditional Round Mechanism:**
+- Rounds with `.0` numbering (e.g., `ContactName-Round-5.0`) are conditional rounds
+- These rounds are only accessible when their conditions are met
+- The engine automatically evaluates conditionals and unlocks threads when variables change
+
 ### Thread Unlocking
-When `$eli_thread_1_complete` becomes `true`, it automatically unlocks conditional threads for other contacts.
+When `$eli_thread_1_complete` becomes `true`, it automatically unlocks conditional threads for other contacts by:
+
+1. **Scanning all contacts** for rounds with `.0` numbering
+2. **Evaluating conditional content** using the current variable state
+3. **Checking if content becomes visible** when conditions are met
+4. **Changing thread state** from `locked` or `ended` to `active`
+
+**Example:**
+```
+:: Jamie-Round-5.0 [Jamie]
+(if: $eli_thread_1_complete is true)
+Hey, I heard about what happened with Eli. Can you help me with something?
+
+[[Sure, what's up?|Jamie-Round-6.1]]
+[[I'm busy|Jamie-Round-6.2]]
+```
+
+This round will only become available when `$eli_thread_1_complete` is `true`.
 
 ## Passage Naming Convention
 
@@ -373,17 +399,23 @@ Great! I'm heading there now.
 8. **Typing indicators appear automatically for responses and delayed messages**
 9. **Response-triggered actions (unlock_contact, send_photo, drop_pin) display after response**
 10. **end_thread always executes last regardless of script order**
+11. **Use `.0` numbering for conditional rounds that unlock based on variables**
+12. **Conditional content is evaluated in real-time when variables change**
+13. **The engine automatically extracts choices from conditional content**
 
 ## Engine Features
 
 ### Core Engine
 - ✅ **Unified delay system** with predictable timing
-- ✅ Twee script parsing with conditional logic
+- ✅ Twee script parsing with Harlowe conditional logic
 - ✅ Dynamic round management with `number.number` format
 - ✅ Action system with configurable delays
 - ✅ Variable management and conditional thread unlocking
 - ✅ State persistence with localStorage
 - ✅ Typing indicators for responses and delayed messages
+- ✅ **Conditional content evaluation** with real-time variable processing
+- ✅ **Automatic thread unlocking** based on variable state changes
+- ✅ **Dynamic choice extraction** from conditional content
 
 ### UI/UX
 - ✅ iPhone-style interface with realistic SMS design
@@ -401,5 +433,26 @@ Great! I'm heading there now.
 - ✅ Unified delay system with global + custom delays
 - ✅ Embedded actions in choice options
 - ✅ Response-triggered action sequencing
+
+## Parsing and Evaluation Process
+
+### Initial Parsing
+1. **Script Loading**: Twee files are parsed into structured `GameData`
+2. **Variable Replacement**: `{{variable}}` syntax is processed
+3. **Conditional Detection**: Harlowe conditionals are identified but not evaluated
+4. **Choice Extraction**: Player choices are extracted from passage content
+
+### Runtime Evaluation
+1. **Variable Changes**: When variables are modified via actions
+2. **Conditional Re-evaluation**: Affected rounds are re-parsed with current variables
+3. **Content Visibility**: Conditional content is evaluated for visibility
+4. **Thread State Updates**: Thread states change based on conditional results
+5. **Choice Regeneration**: New choices are extracted from visible content
+
+### Conditional Processing
+- **Harlowe Syntax**: `(if: $variable is true)` blocks are evaluated
+- **Else Blocks**: `(else:)` content is processed when conditions are false
+- **Nested Conditionals**: Multiple conditional blocks are supported
+- **Variable Context**: All variables are available during evaluation
 
 This engine supports complex branching narratives with realistic SMS interactions, location sharing, photo sharing, and emergency scenarios. The unified delay system ensures predictable and script-controlled timing for all actions. 

@@ -77,11 +77,13 @@ export class TweeParser {
   private parsePassageHeader(line: string, lineNumber: number): ParsedPassage {
     // Format: :: Jamie-Round-1 [initial_contact] {"position":"575,375","size":"100,100"}
     // Also handle metadata passages like :: StoryTitle and :: StoryData
-    const match = line.match(/^::\s+([^[]+)\s*\[([^\]]+)\]\s*(.*)$/);
+    // Remove carriage return characters that can cause regex to fail
+    const cleanLine = line.replace(/\r/g, '');
+    const match = cleanLine.match(/^::\s+([^[]+)\s*\[([^\]]+)\]\s*(.*)$/);
     
     if (!match) {
       // Check if this is a metadata passage (no tags)
-      const metadataMatch = line.match(/^::\s+([^\s]+)\s*$/);
+      const metadataMatch = cleanLine.match(/^::\s+([^\s]+)\s*$/);
       if (metadataMatch) {
         return {
           title: metadataMatch[1].trim(),
@@ -93,7 +95,7 @@ export class TweeParser {
       }
       
       this.errors.push({
-        message: `Invalid passage header format: ${line}`,
+        message: `Invalid passage header format: "${cleanLine}"`,
         type: 'syntax',
         lineNumber
       });
@@ -288,6 +290,12 @@ export class TweeParser {
     const choices: Choice[] = [];
 
     for (const line of lines) {
+      // Include conditional lines in passage content so they can be evaluated later
+      if (line.startsWith('(if:') || line.startsWith('(else:') || line.startsWith('(endif)') || line.startsWith('(set:')) {
+        passage += line + '\n';
+        continue;
+      }
+      
       if (line.startsWith('[Action:')) {
         // Parse standalone action
         const actionText = line.replace('[Action:', '').replace(']', '').trim();
@@ -330,27 +338,66 @@ export class TweeParser {
   }
 
   public evaluateConditionalContent(content: string, variables: Record<string, any>): string {
-    // Handle Harlowe conditional syntax: (if: $variable is true/false)
-    // This method needs to handle multiple conditionals in the same content
+    if (!content || typeof content !== 'string') {
+      return content || '';
+    }
+
     let result = content;
-    
-    // Find all conditional blocks
-    const conditionalRegex = /\(if:\s*\$([a-zA-Z_][a-zA-Z0-9_]*)\s+is\s+(true|false)\)\s*\n?([\s\S]*?)(?=\(if:\s*\$[a-zA-Z_][a-zA-Z0-9_]*\s+is\s+(true|false)\)|$)/g;
-    
-    result = result.replace(conditionalRegex, (match, variableName, expectedValue, conditionalContent) => {
-      const actualValue = variables[variableName];
-      const expectedBool = expectedValue === 'true';
+    const lines = result.split('\n');
+    const processedLines: string[] = [];
+    let inConditionalBlock = false;
+    let currentCondition = false;
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
       
-      if (actualValue === expectedBool) {
-        // Return the content within this conditional block
-        return conditionalContent;
-      } else {
-        // Return empty string if condition doesn't match
-        return '';
+      // Check for conditional start
+      const ifMatch = trimmedLine.match(/^\(if:\s*\$(\w+)\s+is\s+(true|false)\)/);
+      if (ifMatch) {
+        const varName = ifMatch[1];
+        const expectedValue = ifMatch[2] === 'true';
+        const actualValue = variables[varName] === true;
+        currentCondition = actualValue === expectedValue;
+        inConditionalBlock = true;
+        continue;
       }
-    });
-    
-    return result;
+
+      // Check for else
+      if (trimmedLine === '(else:)') {
+        currentCondition = !currentCondition;
+        continue;
+      }
+
+      // Check for endif
+      if (trimmedLine === '(endif)') {
+        inConditionalBlock = false;
+        currentCondition = false;
+        continue;
+      }
+
+      // Check for set statements
+      const setMatch = trimmedLine.match(/^\(set:\s*\$(\w+)\s+to\s+(.+)\)/);
+      if (setMatch) {
+        const varName = setMatch[1];
+        const value = setMatch[2].trim();
+        
+        // Convert string values to appropriate types
+        let parsedValue: any = value;
+        if (value === 'true') parsedValue = true;
+        else if (value === 'false') parsedValue = false;
+        else if (!isNaN(Number(value))) parsedValue = Number(value);
+        
+        variables[varName] = parsedValue;
+        continue;
+      }
+
+      // Include line if not in conditional block or if condition is true
+      if (!inConditionalBlock || currentCondition) {
+        processedLines.push(line);
+      }
+    }
+
+    return processedLines.join('\n');
   }
 
   private parseAction(actionText: string): Action | null {
