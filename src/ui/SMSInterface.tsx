@@ -51,6 +51,8 @@ export default function SMSInterface({
     }
   }, [gameEngine]); // Remove typingDelay from dependencies to avoid infinite loop
 
+
+
   useEffect(() => {
     const handleMessageAdded = (message: Message) => {
       setGameState(gameEngine.getGameState());
@@ -90,6 +92,10 @@ export default function SMSInterface({
       setShow911Animation(true);
     };
 
+    const handleTypingDelayChanged = (event: CustomEvent) => {
+      setTypingDelay(event.detail.delay);
+    };
+
     // Set up event listeners
     gameEngine.events.onMessageAdded = handleMessageAdded;
     gameEngine.events.onContactUnlocked = handleContactUnlocked;
@@ -101,6 +107,7 @@ export default function SMSInterface({
     window.addEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
     window.addEventListener('notification-added', handleNotificationAdded as EventListener);
     window.addEventListener('call-911-animation', handle911Call as EventListener);
+    window.addEventListener('typing-delay-changed', handleTypingDelayChanged as EventListener);
 
     // Don't auto-select first contact - start on Messages list
     // const unlockedContacts = gameEngine.getUnlockedContacts();
@@ -120,6 +127,7 @@ export default function SMSInterface({
       window.removeEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
       window.removeEventListener('notification-added', handleNotificationAdded as EventListener);
       window.removeEventListener('call-911-animation', handle911Call as EventListener);
+      window.removeEventListener('typing-delay-changed', handleTypingDelayChanged as EventListener);
     };
   }, [gameEngine, selectedContact]);
 
@@ -359,7 +367,7 @@ export default function SMSInterface({
                  </button>
                </div>
              </div>
-                           <div>
+              <div>
                 <h4 className="font-medium mb-2 text-gray-300">Test Actions</h4>
                 <div className="space-y-2">
                                      <button 

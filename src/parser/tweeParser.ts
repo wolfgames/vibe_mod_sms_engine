@@ -376,6 +376,15 @@ export class TweeParser {
   private parseActionWithParameters(actionType: string, parameters: string): Action | null {
     const params: Record<string, string | number | boolean> = {};
     
+    // NEW: Extract delay parameter from all actions
+    let delay = 0;
+    const delayMatch = parameters.match(/delay:\s*(\d+)/);
+    if (delayMatch) {
+      delay = parseInt(delayMatch[1]);
+      // Remove delay from parameters string for further parsing
+      parameters = parameters.replace(/delay:\s*\d+/, '').trim();
+    }
+    
     switch (actionType) {
       case 'unlock_contact':
         // Parse comma-separated format: character
@@ -387,6 +396,7 @@ export class TweeParser {
         } else {
           params.contactName = character;
         }
+        params.delay = delay;
         break;
       
       case 'drop_pin':
@@ -407,13 +417,13 @@ export class TweeParser {
         params.description = description;
         params.file = file;
         if (dropPinCharacter) params.character = dropPinCharacter;
+        params.delay = delay;
         break;
       
       case 'send_photo':
-        // Parse named parameter format: file: "filename" caption: "caption" delay: number
+        // Parse named parameter format: file: "filename" caption: "caption"
         let photoFile = 'front_door.png';
         let photoCaption = 'Front door with padlock';
-        let photoDelay = undefined;
         
         // Extract file parameter
         const fileMatch = parameters.match(/file:\s*"([^"]+)"/);
@@ -427,22 +437,15 @@ export class TweeParser {
           photoCaption = captionMatch[1];
         }
         
-        // Extract delay parameter
-        const photoDelayMatch = parameters.match(/delay:\s*(\d+)/);
-        if (photoDelayMatch) {
-          photoDelay = parseInt(photoDelayMatch[1]);
-        }
-        
         params.file = photoFile;
         params.caption = photoCaption;
-        if (photoDelay) params.delay = photoDelay;
+        params.delay = delay;
         break;
       
       case 'send_video':
-        // Parse named parameter format: file: "filename" caption: "caption" delay: number
+        // Parse named parameter format: file: "filename" caption: "caption"
         let videoFile = 'inside_warehouse.png';
         let videoCaption = 'Inside the warehouse';
-        let videoDelay = undefined;
         
         // Extract file parameter
         const videoFileMatch = parameters.match(/file:\s*"([^"]+)"/);
@@ -456,15 +459,9 @@ export class TweeParser {
           videoCaption = videoCaptionMatch[1];
         }
         
-        // Extract delay parameter
-        const videoDelayMatch = parameters.match(/delay:\s*(\d+)/);
-        if (videoDelayMatch) {
-          videoDelay = parseInt(videoDelayMatch[1]);
-        }
-        
         params.file = videoFile;
         params.caption = videoCaption;
-        if (videoDelay) params.delay = videoDelay;
+        params.delay = delay;
         break;
       
       case 'end_thread':
@@ -472,10 +469,12 @@ export class TweeParser {
         let showMessage = true;
         if (parameters === '0') showMessage = false;
         params.showMessage = showMessage;
+        params.delay = delay;
         break;
       
       case 'call_911':
         // No parameters needed
+        params.delay = delay;
         break;
       
       case 'add_chat_history':
@@ -489,6 +488,7 @@ export class TweeParser {
         if (playerMatch) {
           params.player = playerMatch[1];
         }
+        params.delay = delay;
         break;
       
       case 'open_thread':
@@ -496,17 +496,18 @@ export class TweeParser {
         const threadMatch = parameters.match(/thread_id:\s*"([^"]+)"/);
         if (openMatch) params.character = openMatch[1];
         if (threadMatch) params.thread_id = threadMatch[1];
+        params.delay = delay;
         break;
       
       case 'delayed_message':
         // Support both named and comma-separated (delay, message) formats
-        let delay = 3500; // default
+        let messageDelay = 3500; // default
         let message = 'This is a delayed message.'; // default
         
         // Try named parameters first
         const messageDelayMatch = parameters.match(/delay:\s*(\d+)/);
         if (messageDelayMatch) {
-          delay = parseInt(messageDelayMatch[1]);
+          messageDelay = parseInt(messageDelayMatch[1]);
         }
         const messageMatch = parameters.match(/message:\s*"([^"]+)"/);
         if (messageMatch) {
@@ -516,16 +517,16 @@ export class TweeParser {
         if (!messageDelayMatch && !messageMatch) {
           const delayFirstMatch = parameters.match(/^(\d+)\s+message:\s*"([^"]+)"/);
           if (delayFirstMatch) {
-            delay = parseInt(delayFirstMatch[1]);
+            messageDelay = parseInt(delayFirstMatch[1]);
             message = delayFirstMatch[2];
           } else {
             // Fallback to comma-separated
             const delayedParts = parameters.split(',').map(p => p.trim());
-            if (delayedParts.length >= 1) delay = parseInt(delayedParts[0]);
+            if (delayedParts.length >= 1) messageDelay = parseInt(delayedParts[0]);
             if (delayedParts.length >= 2) message = delayedParts[1];
           }
         }
-        params.delay = delay;
+        params.delay = messageDelay;
         params.message = message;
         break;
       
@@ -538,10 +539,59 @@ export class TweeParser {
           params.variableName = varName;
           params.variableValue = varValue;
         }
+        params.delay = delay;
         break;
       
       case 'trigger_eli_needs_code':
         // No parameters needed
+        params.delay = delay;
+        break;
+      
+      case 'typing_indicator':
+        const duration = parameters.match(/duration:\s*(\d+)/);
+        if (duration) {
+          params.duration = parseInt(duration[1]);
+        } else {
+          params.duration = 1000; // default
+        }
+        params.delay = delay;
+        break;
+      
+      case 'set_typing_delay':
+        const typingDelay = parameters.match(/delay:\s*(\d+)/);
+        if (typingDelay) {
+          params.delay = parseInt(typingDelay[1]);
+        } else {
+          params.delay = 1000; // default
+        }
+        break;
+      
+      case 'show_notification':
+        const titleMatch = parameters.match(/title:\s*"([^"]+)"/);
+        const bodyMatch = parameters.match(/body:\s*"([^"]+)"/);
+        if (titleMatch) params.title = titleMatch[1];
+        if (bodyMatch) params.body = bodyMatch[1];
+        params.delay = delay;
+        break;
+      
+      case 'vibrate':
+        const patternMatch = parameters.match(/pattern:\s*"([^"]+)"/);
+        if (patternMatch) {
+          params.pattern = patternMatch[1];
+        } else {
+          params.pattern = 'default';
+        }
+        params.delay = delay;
+        break;
+      
+      case 'set_contact_status':
+        // TODO: Implement contact status parameters
+        params.delay = delay;
+        break;
+      
+      case 'trigger_emergency_call':
+        // No parameters needed
+        params.delay = delay;
         break;
       
       default:
