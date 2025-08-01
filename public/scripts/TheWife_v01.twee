@@ -1,0 +1,177 @@
+:: StoryTitle
+The Wife
+
+:: StoryData
+{
+  "ifid": "8ca5ec7d-62b1-404c-8435-5caec4361c06",
+  "format": "Harlowe",
+  "format-version": "3.3.9",
+  "start": "Sarah-Round-1.0",
+  "tag-colors": {
+    "DROP_PIN": "green",
+    "END_GAME": "red",
+    "NEW_CONTACT": "green",
+    "SEND_PHOTO": "green",
+    "SEND_VIDEO": "green",
+    "CALL_911": "green"
+  },
+  "zoom": 0.6
+}
+
+:: Initial Variables [initial_variables]
+(set: $sarah_checked_downstairs to false)
+(set: $neighbor_contacted to false)
+(set: $house_checked to false)
+
+:: Sarah-Round-1.0 [initial_contact]
+
+Hey babe, I'm upstairs and I just heard something downstairs. It sounded like someone moving around.
+
+[[What do you mean?|Sarah-Round-2.1]]
+[[Are you sure it wasn't the house settling?|Sarah-Round-2.2]]
+[[Stay upstairs and call me if you hear it again|Sarah-Round-2.3]]
+
+:: Sarah-Round-2.1 [Sarah]
+
+I don't know, it was definitely footsteps. I'm pretty sure I'm alone in the house. Should I go check?
+
+[[No, stay upstairs and lock the bedroom door|Sarah-Round-3.1]]
+[[Be careful, but yeah check it out|Sarah-Round-3.2]]
+[[Call the police first|Sarah-Round-3.3]]
+
+:: Sarah-Round-2.2 [Sarah]
+
+No, this was different. It was definitely footsteps. I can hear them right now. Should I go check?
+
+[[No, stay upstairs and lock the bedroom door|Sarah-Round-3.1]]
+[[Be careful, but yeah check it out|Sarah-Round-3.2]]
+[[Call the police first|Sarah-Round-3.3]]
+
+:: Sarah-Round-2.3 [Sarah]
+
+I'm hearing it again right now. It's definitely someone moving around downstairs. I'm going to check it out.
+
+[[Wait, don't go down there|Sarah-Round-3.1]]
+[[Be careful|Sarah-Round-3.2]]
+[[Call me immediately if you see anything|Sarah-Round-3.3]]
+
+:: Sarah-Round-3.1 [Sarah]
+I'm going to check anyway. I'll be careful.
+
+[Action: delayed_message:2000 message: "I'm heading downstairs now"]
+[Action: delayed_message:4000 message: "I can see the kitchen from here..."]
+[Action: delayed_message:3000 message: "There's definitely someone here"]
+[Action: delayed_message:2000 message: "Oh god..."]
+[Action: delayed_message:3000 message: "I need to call someone for help"]
+[Action: open_thread:character: "Mike"]
+
+[[Baby?|Sarah-Round-4.1]]
+[[Your scaring me|Sarah-Round-4.2]]
+[[I'll call Mike|Sarah-Round-4.3]]
+
+:: Sarah-Round-3.2 [Sarah]
+I'll be careful. Let me check it out.
+
+[Action: delayed_message:2000 message: "I'm heading downstairs now"]
+[Action: delayed_message:4000 message: "I can see the kitchen from here..."]
+[Action: delayed_message:3000 message: "There's definitely someone here"]
+[Action: delayed_message:2000 message: "Oh god..."]
+[Action: delayed_message:3000 message: "I need to call someone for help"]
+[Action: open_thread:character: "Mike"]
+
+[[Baby?|Sarah-Round-4.1]]
+[[Your scaring me|Sarah-Round-4.1]]
+[[I'll call Mike|Sarah-Round-4.1]]
+
+:: Sarah-Round-3.3 [Sarah]
+I'm going to check first, then call if I need to.
+
+[Action: delayed_message:2000 message: "I'm heading downstairs now"]
+[Action: delayed_message:4000 message: "I can see the kitchen from here..."]
+[Action: delayed_message:3000 message: "There's definitely someone here"]
+[Action: delayed_message:2000 message: "Oh god..."]
+[Action: delayed_message:3000 message: "I need to call someone for help"]
+[Action: open_thread:character: "Mike"]
+
+[[Baby?|Sarah-Round-4.1]]
+[[Your scaring me|Sarah-Round-4.2]]
+[[I'll call Mike|Sarah-Round-4.3]]
+
+:: Sarah-Round-4.1 [Sarah]
+
+[[Baby?|Sarah-Round-4.1]]
+[[Your scaring me|Sarah-Round-4.1]]
+[[I'll call Mike|Sarah-Round-4.1]]
+
+:: Sarah-Round-4.2 [Sarah]
+
+
+:: Sarah-Round-4.3 [Sarah]
+
+:: Mike-Round-1.0 [initial_contact]
+[Action: add_chat_history:contact: "Hey neighbor! Just wanted to say thanks for helping me with the lawn mower last week. That was really nice of you to lend it to me"]
+[Action: add_chat_history:player: "No problem at all!"]
+[Action: add_chat_history:contact: "Yeah, it's looking much better now. The grass was getting pretty long. Thanks again!"]
+[Action: add_chat_history:player: "You're welcome!"]
+[Action: add_chat_history:contact: "Will do! Have a good one!"]
+
+Hey, this is Mike from next door. I just got a text from your wife Sarah asking me to check on her. She said she heard something downstairs and then stopped responding.
+
+[[Can you go check on her?|Mike-Round-5.1]]
+[[What did she say exactly?|Mike-Round-5.2]]
+[[I'm on my way home, can you wait?|Mike-Round-5.3]]
+
+:: Mike-Round-5.1 [Mike]
+Yeah, I'm heading over now. Let me check the house.
+
+[Action: delayed_message:3000 message: "I'm at your front door"]
+[Action: send_photo:file: "house_exterior.png" caption: "Your house - front door looks normal" delay: 1000]
+[Action: delayed_message:2000 message: "The door is unlocked"]
+[Action: delayed_message:3000 message: "I'm going inside"]
+[Action: send_photo:file: "house_interior.png" caption: "Inside the house - kitchen area" delay: 1000]
+[Action: delayed_message:2000 message: "Oh no..."]
+[Action: delayed_message:2000 message: "I found Sarah... she's unconscious"]
+[Action: delayed_message:2000 message: "There's blood on the floor"]
+[Action: delayed_message:2000 message: "I'm calling 911 right now"]
+
+[[What happened?|Mike-Round-6.1]]
+
+:: Mike-Round-5.2 [Mike]
+She said she heard footsteps downstairs and was going to check it out. Then she just stopped responding to texts. I'm worried.
+
+[Action: delayed_message:2000 message: "I'm going to check on her now"]
+[Action: delayed_message:3000 message: "I'm at your front door"]
+[Action: send_photo:file: "house_exterior.png" caption: "Your house - front door looks normal" delay: 1000]
+[Action: delayed_message:2000 message: "The door is unlocked"]
+[Action: delayed_message:3000 message: "I'm going inside"]
+[Action: send_photo:file: "house_interior.png" caption: "Inside the house - kitchen area" delay: 1000]
+[Action: delayed_message:2000 message: "Oh no..."]
+[Action: delayed_message:2000 message: "I found Sarah... she's unconscious"]
+[Action: delayed_message:2000 message: "There's blood on the floor"]
+[Action: delayed_message:2000 message: "I'm calling 911 right now"]
+
+[[What happened?|Mike-Round-6.1]]
+
+:: Mike-Round-5.3 [Mike]
+I can't wait, this sounds serious. I'm going to check now.
+
+[Action: delayed_message:2000 message: "I'm heading over"]
+[Action: delayed_message:3000 message: "I'm at your front door"]
+[Action: send_photo:file: "house_exterior.png" caption: "Your house - front door looks normal" delay: 1000]
+[Action: delayed_message:2000 message: "The door is unlocked"]
+[Action: delayed_message:3000 message: "I'm going inside"]
+[Action: send_photo:file: "house_interior.png" caption: "Inside the house - kitchen area" delay: 1000]
+[Action: delayed_message:2000 message: "Oh no..."]
+[Action: delayed_message:2000 message: "I found Sarah... she's unconscious"]
+[Action: delayed_message:2000 message: "There's blood on the floor"]
+[Action: delayed_message:2000 message: "I'm calling 911 right now"]
+
+[[What happened?|Mike-Round-6.1]]
+
+:: Mike-Round-6.1 [Mike]
+I found Sarah unconscious on the kitchen floor. There's blood everywhere. The police are on their way. Stay on the line with me.
+
+[Action: delayed_message:2000 message: "The police are here now"]
+[Action: delayed_message:3000 message: "They're taking Sarah to the hospital"]
+[Action: delayed_message:2000 message: "You need to get here as soon as possible"]
+[Action: call_911] 

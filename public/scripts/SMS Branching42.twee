@@ -101,7 +101,7 @@ yeah alright.
 
 [Action: delayed_message:3000 message: "Here's what I'm looking at:"]
 
-[Action: send_photo:file: "front_door.png" caption: "Front door with padlock" delay: 4000]
+[Action: send_photo:file: "front_door.png" caption: "Front door with padlock" delay: 1000]
 
 [[Hang tight. Let me ask around for the combo.|Eli-Round-5.1]]
 
@@ -119,7 +119,7 @@ Ok, give me a beat.
 
 [Action: delayed_message:3000 message: "Here's what I'm looking at:"]
 
-[Action: send_photo:file: "front_door.png" caption: "Front door with padlock" delay: 4000]
+[Action: send_photo:file: "front_door.png" caption: "Front door with padlock" delay: 1000]
 
 [[Hang tight. Let me ask around for the combo.|Eli-Round-5.1]]
 

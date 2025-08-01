@@ -478,6 +478,19 @@ export class TweeParser {
         // No parameters needed
         break;
       
+      case 'add_chat_history':
+        // Parse format: contact: "message1|message2" player: "response1|response2"
+        const contactMatch = parameters.match(/contact:\s*"([^"]+)"/);
+        const playerMatch = parameters.match(/player:\s*"([^"]+)"/);
+        
+        if (contactMatch) {
+          params.contact = contactMatch[1];
+        }
+        if (playerMatch) {
+          params.player = playerMatch[1];
+        }
+        break;
+      
       case 'open_thread':
         const openMatch = parameters.match(/character:\s*"([^"]+)"/);
         const threadMatch = parameters.match(/thread_id:\s*"([^"]+)"/);

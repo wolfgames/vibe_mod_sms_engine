@@ -69,9 +69,40 @@ export class GameEngine {
   private pendingEndThread: boolean = false;
   private pendingEndThreadShowMessage: boolean = false;
   private pendingDropPin: { contactName: string; location: string; description: string; file: string } | null = null;
-  private pendingDelayedMessages: Array<{ contactName: string; message: string; delay: number }> = [];
   private pendingResponses: Set<string> = new Set();
-  private pendingDelayedPhotos: Array<{ contactName: string; caption: string; imagePath: string; delay: number }> = [];
+  private specialMessagesProcessed: boolean = false;
+  
+  // Centralized typing indicator management
+  private activeTypingIndicators: Set<string> = new Set(); // Track active typing indicators by contact
+
+  // Helper methods for centralized typing indicator management
+  private addTypingIndicator(contactName: string): boolean {
+    // Only add if no typing indicator is already active for this contact
+    if (this.activeTypingIndicators.has(contactName)) {
+      return false; // Already has typing indicator
+    }
+    
+    this.activeTypingIndicators.add(contactName);
+    this.addMessage(contactName, '', false, 'typing');
+    return true;
+  }
+
+  private removeTypingIndicator(contactName: string): void {
+    if (this.activeTypingIndicators.has(contactName)) {
+      this.activeTypingIndicators.delete(contactName);
+      
+      // Remove typing indicator from message history
+      const messages = this.state.messageHistory[contactName] || [];
+      const typingMessage = messages.find(msg => msg.type === 'typing');
+      if (typingMessage) {
+        this.state.messageHistory[contactName] = messages.filter(msg => msg.id !== typingMessage.id);
+      }
+    }
+  }
+
+  private hasTypingIndicator(contactName: string): boolean {
+    return this.activeTypingIndicators.has(contactName);
+  }
 
   constructor(gameData: GameData, events: GameEngineEvents) {
     this.gameData = gameData;
@@ -82,32 +113,45 @@ export class GameEngine {
   }
 
   private initializeState(): GameState {
-    // Initialize contacts that should start unlocked
-    const initiallyUnlocked = new Set<string>();
-    for (const [contactName, contact] of Object.entries(this.gameData.contacts)) {
-      if (contact.unlocked) {
-        initiallyUnlocked.add(contactName);
-      }
-    }
-
-    // Create initial state
     const initialState: GameState = {
       currentRounds: {},
-      variables: { ...this.gameData.variables },
+      variables: {},
       threadStates: {},
       messageHistory: {},
-      unlockedContacts: initiallyUnlocked,
-      viewedContacts: new Set<string>(), // Initialize empty set for viewed contacts
-
-      typingDelays: { global: 1000 }, // Initialize with 1000ms default
+      unlockedContacts: new Set(),
+      viewedContacts: new Set(),
+      typingDelays: {},
       gameStartTime: Date.now(),
       notifications: []
     };
 
-    // Set up the first unlocked contact as the starting contact with initial message
-    const unlockedContacts = Array.from(initiallyUnlocked);
+    // Process initial contacts and set up initial state
+    const unlockedContacts: string[] = [];
+    
+    console.log('DEBUG: Available contacts:', Object.keys(this.gameData.contacts));
+    
+    for (const [contactName, contact] of Object.entries(this.gameData.contacts)) {
+      console.log(`DEBUG: Checking contact ${contactName}:`, contact.unlocked);
+      if (contact.unlocked) {
+        unlockedContacts.push(contactName);
+        console.log(`DEBUG: Added ${contactName} to unlocked contacts`);
+      }
+    }
+
+    console.log('DEBUG: Unlocked contacts found:', unlockedContacts);
+
     if (unlockedContacts.length > 0) {
-      const firstContact = unlockedContacts[0];
+      // Add all unlocked contacts to the Set
+      unlockedContacts.forEach(contactName => {
+        initialState.unlockedContacts.add(contactName);
+      });
+      
+      // Ensure Sarah is processed first if she exists
+      let firstContact = unlockedContacts[0];
+      if (unlockedContacts.includes('Sarah')) {
+        firstContact = 'Sarah';
+      }
+      
       initialState.currentRounds[firstContact] = "1.0";
       initialState.threadStates[firstContact] = "active";
       
@@ -126,6 +170,36 @@ export class GameEngine {
         };
         
         initialState.messageHistory[firstContact] = [initialMessage];
+      }
+      
+      // Execute chat history actions from Round-1.0 immediately for the first contact
+      if (round1 && round1.actions && round1.actions.length > 0) {
+        for (const action of round1.actions) {
+          if (action.type === 'add_chat_history') {
+            this.processChatHistoryAction(action, firstContact, initialState);
+          }
+        }
+      }
+      
+      // Process other unlocked contacts - set thread state to locked initially
+      for (let i = 0; i < unlockedContacts.length; i++) {
+        const contactName = unlockedContacts[i];
+        if (contactName === firstContact) continue; // Skip the first contact
+        
+        // Set thread state to locked for non-first contacts
+        initialState.threadStates[contactName] = "locked";
+        
+        const contactData = this.gameData.contacts[contactName];
+        const round1Other = contactData.rounds["1.0"];
+        
+        if (round1Other && round1Other.actions && round1Other.actions.length > 0) {
+          for (const action of round1Other.actions) {
+            if (action.type === 'add_chat_history') {
+              this.processChatHistoryAction(action, contactName, initialState);
+            }
+          }
+        }
+        // Don't add initial message for locked threads - it will be added when thread is unlocked
       }
     }
 
@@ -146,6 +220,9 @@ export class GameEngine {
 
     const choice = round.choices[choiceIndex];
     const targetRoundName = choice.targetRound;
+    
+    // Add the player's choice as a message first
+    this.addMessage(contactName, choice.text, true); // isFromPlayer = true
     
     // Extract round number from target round name
     const roundMatch = targetRoundName.match(/(\d+\.\d+)/);
@@ -171,6 +248,9 @@ export class GameEngine {
     // Queue response message if there's a passage
     if (targetRound.passage) {
       this.queueResponseMessage(contactName, targetRound.passage);
+    } else {
+      // If no passage, still process pending actions to ensure round advances properly
+      this.processPendingActions(contactName);
     }
     
     // Execute embedded action if present
@@ -233,62 +313,126 @@ export class GameEngine {
   }
 
   executeActions(actions: Action[], contactName?: string): void {
-    for (const action of actions) {
-      this.executeAction(action, contactName);
-    }
+    // Process actions in sequence to maintain proper timing
+    this.processActionsSequentially(actions, contactName, 0);
   }
 
-  private executeAction(action: Action, contactName?: string): void {
+  private processActionsSequentially(actions: Action[], contactName?: string, currentDelay: number = 0): void {
+    if (actions.length === 0) {
+      // All actions processed, start processing pending actions
+      if (contactName) {
+        this.processPendingActions(contactName);
+      }
+      return;
+    }
+
+    const action = actions[0];
+    const remainingActions = actions.slice(1);
+
     this.events.onActionExecuted(action);
 
     switch (action.type) {
       case 'unlock_contact':
         this.handleUnlockContact(action);
+        // Don't schedule the message here - it will be handled after the reply appears
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'end_thread':
         this.handleEndThread(action);
+        // Don't schedule the message here - it will be handled after the reply appears
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'drop_pin':
         this.handleDropPin(action, contactName);
+        // Don't schedule the message here - it will be handled after the reply appears
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'send_photo':
-        this.handleSendPhoto(action, contactName);
+        this.handleSendPhotoImmediate(action, contactName, currentDelay);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'delayed_message':
-        this.handleDelayedMessage(action, contactName);
+        this.handleDelayedMessageSequential(action, contactName, currentDelay);
+        const messageDelay = action.parameters.delay as number || 0;
+        this.processActionsSequentially(remainingActions, contactName, currentDelay + messageDelay);
         break;
       case 'set_variable':
         this.handleSetVariable(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'call_911':
         this.handleCall911(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'open_thread':
         this.handleOpenThread(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'trigger_eli_needs_code':
         this.handleTriggerEliNeedsCode(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'typing_indicator':
         this.handleTypingIndicator(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'set_typing_delay':
         this.handleSetTypingDelay(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'show_notification':
         this.handleShowNotification(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'vibrate':
         this.handleVibrate(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'set_contact_status':
         this.handleSetContactStatus(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       case 'trigger_emergency_call':
         this.handleTriggerEmergencyCall(action);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
+        break;
+      case 'add_chat_history':
+        this.handleAddChatHistory(action, contactName);
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
       default:
+        this.processActionsSequentially(remainingActions, contactName, currentDelay);
         break;
+    }
+  }
+
+  private handleDelayedMessageSequential(action: Action, contactName?: string, currentDelay: number = 0): void {
+    const message = action.parameters.message as string;
+    const delay = action.parameters.delay as number || 0;
+    const character = action.parameters.character as string;
+    
+    if (message) {
+      const contactNameToUse = contactName || character || this.getCurrentContactFromAction(action);
+      
+      if (contactNameToUse) {
+        // Schedule the message with typing indicator
+        setTimeout(() => {
+          // Add typing indicator using centralized system
+          this.addTypingIndicator(contactNameToUse);
+          
+          // Remove typing indicator and add message after 400ms
+          setTimeout(() => {
+            this.removeTypingIndicator(contactNameToUse);
+            
+            // Add the actual message
+            this.addMessage(
+              contactNameToUse,
+              message,
+              false
+            );
+          }, 400); // 400ms typing indicator duration
+        }, currentDelay);
+      }
     }
   }
 
@@ -392,7 +536,6 @@ export class GameEngine {
   private handleSendPhoto(action: Action, contactName?: string): void {
     const file = action.parameters.file as string;
     const caption = action.parameters.caption as string;
-    const delay = action.parameters.delay as number;
     const character = action.parameters.character as string;
     
     if (file && caption) {
@@ -402,16 +545,27 @@ export class GameEngine {
         // Use the correct path for images in assets/images directory
         const imagePath = `/assets/images/${file}`;
         
-        if (delay) {
-          // Store the delayed photo to be added after the response message
-          this.pendingDelayedPhotos.push({
-            contactName: contactNameToUse,
-            caption: caption,
-            imagePath: imagePath,
-            delay: delay
-          });
-        } else {
-          // Send immediately
+        // Process photo immediately - it will appear after the current message sequence
+        // We'll add it to the pending photos with a minimal delay to ensure it appears after the current message
+        // This logic is now handled by handleSendPhotoImmediate
+      }
+    }
+  }
+
+  private handleSendPhotoImmediate(action: Action, contactName?: string, currentDelay: number = 0): void {
+    const file = action.parameters.file as string;
+    const caption = action.parameters.caption as string;
+    const character = action.parameters.character as string;
+    const delay = action.parameters.delay as number || 0; // Added delay parameter from action
+
+    if (file && caption) {
+      const contactNameToUse = contactName || character || this.getCurrentContactFromAction(action);
+
+      if (contactNameToUse) {
+        const imagePath = `/assets/images/${file}`;
+
+        // Schedule the photo to appear after the current delay plus the action's delay parameter
+        setTimeout(() => {
           this.addMessage(
             contactNameToUse,
             caption,
@@ -420,26 +574,7 @@ export class GameEngine {
             imagePath,
             caption
           );
-        }
-      }
-    }
-  }
-
-  private handleDelayedMessage(action: Action, contactName?: string): void {
-    const message = action.parameters.message as string;
-    const delay = action.parameters.delay as number || 0;
-    const character = action.parameters.character as string;
-    
-    if (message) {
-      const contactNameToUse = contactName || character || this.getCurrentContactFromAction(action);
-      
-      if (contactNameToUse) {
-        // Store the delayed message to be added after the response message
-        this.pendingDelayedMessages.push({
-          contactName: contactNameToUse,
-          message: message,
-          delay: delay
-        });
+        }, currentDelay + delay);
       }
     }
   }
@@ -538,14 +673,44 @@ export class GameEngine {
 
   private handleOpenThread(action: Action): void {
     const character = action.parameters.character as string;
-    const threadId = action.parameters.thread_id as string;
     
-    if (character && threadId) {
-      // Dispatch event for UI to open thread
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('open-thread', {
-          detail: { character, thread_id: threadId }
-        }));
+    if (character) {
+      const normalizedContactName = this.normalizeContactName(character);
+      
+      if (this.state.threadStates[normalizedContactName] === 'locked') {
+        this.state.threadStates[normalizedContactName] = 'active';
+        
+        // Remove from viewedContacts so blue dot will appear
+        this.state.viewedContacts.delete(normalizedContactName);
+        
+        // Add initial message when thread is unlocked
+        const contactData = this.gameData.contacts[normalizedContactName];
+        const round1 = contactData.rounds["1.0"];
+        if (round1 && round1.passage) {
+          const initialMessage: Message = {
+            id: `msg_${Date.now()}_initial_${normalizedContactName}`,
+            contactName: normalizedContactName,
+            text: round1.passage,
+            timestamp: Date.now(),
+            isFromPlayer: false,
+            type: 'text',
+            read: false
+          };
+          
+          if (!this.state.messageHistory[normalizedContactName]) {
+            this.state.messageHistory[normalizedContactName] = [];
+          }
+          this.state.messageHistory[normalizedContactName].push(initialMessage);
+          
+          this.events.onMessageAdded(initialMessage);
+        }
+        
+        this.events.onThreadStateChanged(normalizedContactName, 'active');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('thread-unlocked', {
+            detail: { character: normalizedContactName }
+          }));
+        }
       }
     }
   }
@@ -581,6 +746,104 @@ export class GameEngine {
 
   private handleTriggerEmergencyCall(action: Action): void {
     this.triggerEmergencyCall();
+  }
+
+  private handleAddChatHistory(action: Action, contactName?: string): void {
+    const targetContact = contactName || this.getCurrentContactFromAction(action);
+    if (!targetContact) return;
+
+    // Get past timestamp for chat history (messages should appear as if they happened in the past)
+    const pastTimestamp = this.getPastTimestamp();
+
+    // Handle contact messages
+    if (action.parameters.contact) {
+      const contactMessages = (action.parameters.contact as string).split('|');
+      contactMessages.forEach((message, index) => {
+        const timestamp = pastTimestamp - (index * 5 * 60 * 1000); // 5 minutes apart
+        this.addMessage(
+          targetContact,
+          message.trim(),
+          false, // isFromPlayer = false (contact message)
+          'text',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          timestamp
+        );
+      });
+    }
+
+    // Handle player messages
+    if (action.parameters.player) {
+      const playerMessages = (action.parameters.player as string).split('|');
+      playerMessages.forEach((message, index) => {
+        const timestamp = pastTimestamp - (index * 5 * 60 * 1000) - (2.5 * 60 * 1000); // Between contact messages
+        this.addMessage(
+          targetContact,
+          message.trim(),
+          true, // isFromPlayer = true (player message)
+          'text',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          timestamp
+        );
+      });
+    }
+  }
+
+  private processChatHistoryAction(action: Action, contactName: string, state: GameState): void {
+    const targetContact = contactName || this.getCurrentContactFromAction(action);
+    if (!targetContact) return;
+
+    const pastTimestamp = this.getPastTimestamp();
+
+    if (action.parameters.contact) {
+      const contactMessages = (action.parameters.contact as string).split('|');
+      contactMessages.forEach((message, index) => {
+        const timestamp = pastTimestamp - (index * 5 * 60 * 1000);
+        const chatMessage: Message = {
+          id: `${targetContact}-${timestamp}-${Math.random()}`,
+          contactName: targetContact,
+          text: message.trim(),
+          timestamp: timestamp,
+          isFromPlayer: false,
+          type: 'text',
+          read: false
+        };
+        if (!state.messageHistory[targetContact]) {
+          state.messageHistory[targetContact] = [];
+        }
+        state.messageHistory[targetContact].push(chatMessage);
+      });
+    }
+
+    if (action.parameters.player) {
+      const playerMessages = (action.parameters.player as string).split('|');
+      playerMessages.forEach((message, index) => {
+        const timestamp = pastTimestamp - (index * 5 * 60 * 1000) - (2.5 * 60 * 1000);
+        const chatMessage: Message = {
+          id: `${targetContact}-${timestamp}-${Math.random()}`,
+          contactName: targetContact,
+          text: message.trim(),
+          timestamp: timestamp,
+          isFromPlayer: true,
+          type: 'text',
+          read: false
+        };
+        if (!state.messageHistory[targetContact]) {
+          state.messageHistory[targetContact] = [];
+        }
+        state.messageHistory[targetContact].push(chatMessage);
+      });
+    }
+  }
+
+  private getPastTimestamp(): number {
+    // Generate a timestamp that's in the past (1 hour ago)
+    return Date.now() - (60 * 60 * 1000);
   }
 
   private getCurrentContactFromAction(action: Action): string | null {
@@ -713,51 +976,56 @@ export class GameEngine {
     const duration = action.parameters.duration as number || 1000;
     const contactName = this.getCurrentContactFromAction(action) || 'Unknown';
     
-    setTimeout(() => {
-      this.addMessage(contactName, '', false, 'typing');
-    }, duration);
+    // Add typing indicator using centralized system
+    if (this.addTypingIndicator(contactName)) {
+      // Remove typing indicator after the specified duration
+      setTimeout(() => {
+        this.removeTypingIndicator(contactName);
+      }, duration);
+    }
   }
 
   private queueResponseMessage(contactName: string, responseText: string): void {
-    const delay = this.getGlobalTypingDelay();
-    
-    // Mark that we have a pending response for this contact
-    this.pendingResponses.add(contactName);
+    const delay = this.state.typingDelays[contactName] || this.state.typingDelays.global || 1000;
     
     if (delay > 0) {
-      // Add typing indicator first
+      // Add typing indicator using centralized system
+      this.addTypingIndicator(contactName);
+      
+      // Schedule the response after the delay
       setTimeout(() => {
-        this.addMessage(contactName, '', false, 'typing');
+        // Remove typing indicator using centralized system
+        this.removeTypingIndicator(contactName);
         
-        // Then add the actual response after the same delay
-        setTimeout(() => {
-          // Remove the typing indicator by replacing it with the actual message
-          const messages = this.state.messageHistory[contactName] || [];
-          if (messages.length > 0 && messages[messages.length - 1].type === 'typing') {
-            messages.pop(); // Remove the typing indicator
-          }
-          
-          // Add the response message
-          this.addMessage(contactName, responseText, false);
-          this.pendingResponses.delete(contactName);
-          
-          // Process pending actions in sequence
-          this.processPendingActions(contactName);
-        }, delay);
+        // Add the response message
+        this.addMessage(contactName, responseText, false);
+        this.pendingResponses.delete(contactName);
+        
+        // Process special messages after the reply message is added
+        this.processSpecialMessages(contactName);
+        
+        // Process pending actions in sequence
+        this.processPendingActions(contactName);
       }, delay);
     } else {
       // No delay - add response immediately
       this.addMessage(contactName, responseText, false);
       this.pendingResponses.delete(contactName);
       
+      // Process special messages after the reply message is added
+      this.processSpecialMessages(contactName);
+      
       // Process pending actions in sequence
       this.processPendingActions(contactName);
     }
   }
 
-  private processPendingActions(contactName: string): void {
-    // Process unlock contact first
+  private processSpecialMessages(contactName: string): void {
+    // Process any pending unlock contact
     if (this.pendingUnlockContact) {
+      this.unlockContact(this.pendingUnlockContact);
+      
+      // Add the unlock contact message after the global typing delay
       setTimeout(() => {
         this.addMessage(
           contactName,
@@ -767,151 +1035,98 @@ export class GameEngine {
           undefined,
           undefined,
           undefined,
-          this.pendingUnlockContact || undefined
+          this.pendingUnlockContact
         );
         this.pendingUnlockContact = null;
-        
-        // Continue processing other pending actions
-        this.processRemainingPendingActions(contactName);
-      }, 1000);
-    } else if (this.pendingDropPin && this.pendingDropPin.contactName === contactName) {
-      setTimeout(() => {
-        if (this.pendingDropPin) { // Add null check
-          this.addMessage(
-            this.pendingDropPin.contactName,
-            this.pendingDropPin.location,
-            false,
-            'location',
-            undefined, // mediaUrl - not needed for location
-            undefined, // caption - not needed for location
-            {
-              name: this.pendingDropPin.location,
-              description: this.pendingDropPin.description,
-              mapFile: this.pendingDropPin.file
-            }
-          );
-          this.pendingDropPin = null;
-        }
-        
-        // Continue processing other pending actions
-        this.processRemainingPendingActions(contactName);
-      }, 1000);
-    } else {
-      // No unlock contact or drop pin, process remaining actions
-      this.processRemainingPendingActions(contactName);
+      }, this.getGlobalTypingDelay());
     }
+
+    // Process any pending end thread message
+    if (this.pendingEndThread && this.pendingEndThreadShowMessage) {
+      setTimeout(() => {
+        this.addMessage(
+          contactName,
+          'The Conversation Has Ended',
+          false,
+          'end_thread'
+        );
+        this.pendingEndThread = false;
+        this.pendingEndThreadShowMessage = false;
+      }, this.getGlobalTypingDelay());
+    }
+
+    // Process any pending drop pin
+    if (this.pendingDropPin && this.pendingDropPin.contactName === contactName) {
+      // Add the drop pin message after the global typing delay
+      setTimeout(() => {
+        this.addMessage(
+          this.pendingDropPin.contactName,
+          this.pendingDropPin.description,
+          false,
+          'location',
+          undefined,
+          undefined,
+          {
+            name: this.pendingDropPin.location,
+            description: this.pendingDropPin.description,
+            mapFile: this.pendingDropPin.file
+          }
+        );
+        this.pendingDropPin = null;
+      }, this.getGlobalTypingDelay());
+    }
+  }
+
+  private processPendingActions(contactName: string): void {
+    // Process any pending end thread
+    if (this.pendingEndThread) {
+      this.state.threadStates[contactName] = 'ended';
+      this.events.onThreadStateChanged(contactName, 'ended');
+      this.pendingEndThread = false;
+      this.pendingEndThreadShowMessage = false;
+    }
+
+    // No pending actions, trigger UI update to show new choices
+    this.events.onMessageAdded({
+      id: `round_update_${Date.now()}`,
+      contactName: contactName,
+      text: '',
+      timestamp: Date.now(),
+      isFromPlayer: false,
+      type: 'text',
+      read: false
+    });
   }
 
   private processRemainingPendingActions(contactName: string): void {
-    // Process delayed messages and photos
-    if (this.pendingDelayedMessages.length > 0 || this.pendingDelayedPhotos.length > 0) {
-      this.processNextDelayedAction(contactName);
+    // Delayed messages are now handled in the new sequential system
+    // Only process end thread if pending
+    if (this.pendingEndThread) {
+      setTimeout(() => {
+        if (this.pendingEndThreadShowMessage) {
+          this.addMessage(
+            contactName,
+            'The Conversation Has Ended',
+            false,
+            'end_thread'
+          );
+        }
+        this.pendingEndThread = false;
+        this.pendingEndThreadShowMessage = false;
+      }, 500);
     } else {
-      // If there's a pending end thread, add it after unlock contact
-      if (this.pendingEndThread) {
-        setTimeout(() => {
-          if (this.pendingEndThreadShowMessage) {
-            this.addMessage(
-              contactName,
-              'The Conversation Has Ended',
-              false,
-              'end_thread'
-            );
-          }
-          this.pendingEndThread = false;
-          this.pendingEndThreadShowMessage = false;
-        }, 500);
-      }
+      // No pending actions, trigger UI update to show new choices
+      this.events.onMessageAdded({
+        id: `round_update_${Date.now()}`,
+        contactName: contactName,
+        text: '',
+        timestamp: Date.now(),
+        isFromPlayer: false,
+        type: 'text',
+        read: false
+      });
     }
   }
-
-  private processNextDelayedAction(contactName: string): void {
-    if (this.pendingDelayedMessages.length === 0 && this.pendingDelayedPhotos.length === 0) {
-      // No more delayed actions, process end thread if pending
-      if (this.pendingEndThread) {
-        setTimeout(() => {
-          if (this.pendingEndThreadShowMessage) {
-            this.addMessage(
-              contactName,
-              'The Conversation Has Ended',
-              false,
-              'end_thread'
-            );
-          }
-          this.pendingEndThread = false;
-          this.pendingEndThreadShowMessage = false;
-        }, 500);
-      }
-      return;
-    }
-
-    // Determine which action to process next (message or photo)
-    let nextAction: any = null;
-    let isPhoto = false;
-
-    if (this.pendingDelayedMessages.length > 0 && this.pendingDelayedPhotos.length > 0) {
-      // Both have actions, choose the one with the shorter delay
-      const nextMessage = this.pendingDelayedMessages[0];
-      const nextPhoto = this.pendingDelayedPhotos[0];
-      
-      if (nextMessage.delay <= nextPhoto.delay) {
-        nextAction = nextMessage;
-        isPhoto = false;
-      } else {
-        nextAction = nextPhoto;
-        isPhoto = true;
-      }
-    } else if (this.pendingDelayedMessages.length > 0) {
-      nextAction = this.pendingDelayedMessages[0];
-      isPhoto = false;
-    } else {
-      nextAction = this.pendingDelayedPhotos[0];
-      isPhoto = true;
-    }
-    
-    // Add typing indicator before the delayed message/photo
-    this.addMessage(
-      nextAction.contactName,
-      '',
-      false,
-      'typing'
-    );
-    
-    setTimeout(() => {
-      // Remove typing indicator
-      const messages = this.state.messageHistory[nextAction.contactName] || [];
-      const typingMessage = messages.find(msg => msg.type === 'typing');
-      if (typingMessage) {
-        this.state.messageHistory[nextAction.contactName] = messages.filter(msg => msg.id !== typingMessage.id);
-        this.events.onMessageAdded(typingMessage); // Trigger UI update
-      }
-      
-      if (isPhoto) {
-        // Process delayed photo
-        this.addMessage(
-          nextAction.contactName,
-          nextAction.caption,
-          false,
-          'photo',
-          nextAction.imagePath,
-          nextAction.caption
-        );
-        this.pendingDelayedPhotos.shift(); // Remove the processed photo
-      } else {
-        // Process delayed message
-        this.addMessage(
-          nextAction.contactName,
-          nextAction.message,
-          false
-        );
-        this.pendingDelayedMessages.shift(); // Remove the processed message
-      }
-      
-      // Process the next delayed action
-      this.processNextDelayedAction(contactName);
-    }, nextAction.delay);
-  }
-
 
   private setTypingDelay(action: Action): void {
     const delay = action.parameters.delay as number || 1000;
@@ -1007,8 +1222,7 @@ export class GameEngine {
         this.handleSetVariable(action);
         break;
       default:
-        // For other actions, just execute normally
-        this.executeAction(action, contactName);
+        // For other actions, just ignore them in embedded context
         break;
     }
   }
@@ -1105,13 +1319,14 @@ export class GameEngine {
     mediaUrl?: string,
     caption?: string,
     location?: Message['location'],
-    unlockedContactName?: string
+    unlockedContactName?: string,
+    timestamp?: number // Added timestamp parameter
   ): void {
     const message: Message = {
       id: `${contactName}-${Date.now()}-${Math.random()}`,
       contactName,
       text,
-      timestamp: Date.now(),
+      timestamp: timestamp || Date.now(), // Use provided timestamp or current
       isFromPlayer,
       type,
       mediaUrl,
@@ -1357,9 +1572,9 @@ export class GameEngine {
     this.pendingEndThread = false;
     this.pendingEndThreadShowMessage = false;
     this.pendingDropPin = null;
-    this.pendingDelayedMessages = []; // Clear pending delayed messages
-    this.pendingResponses.clear();
-    this.pendingDelayedPhotos = []; // Clear pending delayed photos
+    
+    // Clear active typing indicators
+    this.activeTypingIndicators.clear();
     
     // Ensure variables are reset to initial state from gameData
     this.state.variables = { ...this.gameData.variables };
@@ -1389,7 +1604,7 @@ export class GameEngine {
       type: actionType as any,
       parameters
     };
-    this.executeAction(action);
+    this.executeActions([action]);
   }
 
   private findTargetRound(contact: Contact, responseText: string): Round | null {
@@ -1402,3 +1617,4 @@ export class GameEngine {
     return null;
   }
 } 
+

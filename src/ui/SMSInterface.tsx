@@ -141,6 +141,12 @@ export default function SMSInterface({
     // Get the current round for this contact
     gameEngine.getCurrentRound(contactName);
     
+    // Check if the thread is locked - don't add initial message if locked
+    const threadState = gameEngine.getContactState(contactName);
+    if (threadState === 'locked') {
+      return;
+    }
+    
     // Add initial message if this is the first time selecting this contact
     const contact = gameEngine.getContactData(contactName);
     if (contact && contact.rounds) {
@@ -384,15 +390,29 @@ export default function SMSInterface({
                                                                 <button 
                          onClick={() => {
                            gameEngine.setVariable('eli_thread_1_complete', false);
-                           // Manually lock the threads
-                           gameEngine.state.threadStates['Jamie'] = 'locked';
-                           gameEngine.state.threadStates['Maya'] = 'locked';
-                           gameEngine.events.onThreadStateChanged('Jamie', 'locked');
-                           gameEngine.events.onThreadStateChanged('Maya', 'locked');
+                           // Manually lock all threads for testing
+                           const allContacts = Object.keys(gameData.contacts);
+                           allContacts.forEach(contactName => {
+                             gameEngine.state.threadStates[contactName] = 'locked';
+                             gameEngine.events.onThreadStateChanged(contactName, 'locked');
+                           });
                          }}
                        className="w-full px-3 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700"
                      >
                        Lock Threads for Testing
+                     </button>
+                     <button 
+                       onClick={() => {
+                         // Manually unlock all threads for testing
+                         const allContacts = Object.keys(gameData.contacts);
+                         allContacts.forEach(contactName => {
+                           gameEngine.state.threadStates[contactName] = 'active';
+                           gameEngine.events.onThreadStateChanged(contactName, 'active');
+                         });
+                       }}
+                       className="w-full px-3 py-2 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
+                     >
+                       Unlock Threads for Testing
                      </button>
                 </div>
               </div>
@@ -507,6 +527,7 @@ export default function SMSInterface({
                             onUnlockContactClick={handleUnlockContactClick}
                             onBack={handleBackToMessages}
                             show911Animation={show911Animation}
+                            threadState={gameState.threadStates[selectedContact] || 'active'}
                           />
                         );
                      })()}

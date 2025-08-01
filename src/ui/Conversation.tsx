@@ -17,6 +17,7 @@ interface ConversationProps {
   onUnlockContactClick: (contactName: string) => void;
   onBack?: () => void;
   show911Animation?: boolean;
+  threadState?: 'active' | 'locked' | 'ended';
 }
 
 export default function Conversation({
@@ -29,7 +30,8 @@ export default function Conversation({
   onChoiceSelect,
   onUnlockContactClick,
   onBack,
-  show911Animation: propShow911Animation
+  show911Animation: propShow911Animation,
+  threadState = 'active'
 }: ConversationProps) {
   
 
@@ -114,7 +116,10 @@ export default function Conversation({
     // Check if thread has ended by looking for thread ended message
     const threadEnded = messages.some(msg => msg.isThreadEnded);
     
-
+    // Don't show choices if thread is locked or ended
+    if (threadState === 'locked' || threadEnded) {
+      return;
+    }
     
     // Show choices if available and thread hasn't ended
     if (currentRound?.choices && currentRound.choices.length > 0 && !threadEnded) {
