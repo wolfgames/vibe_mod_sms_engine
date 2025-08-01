@@ -12,13 +12,107 @@ export default function GamePage() {
   const [gameEngine, setGameEngine] = useState<GameEngine | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentScript, setCurrentScript] = useState<string>('SMS Branching40_New_test1.twee');
+  const [currentScript, setCurrentScript] = useState<string>('');
+  const [availableScripts, setAvailableScripts] = useState<string[]>([]);
+
+  // Load saved script from localStorage
+  const getSavedScript = (): string => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('selectedScript') || '';
+    }
+    return '';
+  };
+
+  // Save script to localStorage
+  const saveScript = (scriptName: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('selectedScript', scriptName);
+    }
+  };
+
+  // Clear saved script from localStorage
+  const clearSavedScript = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('selectedScript');
+    }
+  };
+
+  // Function to scan scripts directory
+  const scanScriptsDirectory = async (): Promise<string[]> => {
+    try {
+      // Fetch a list of scripts from the server
+      const response = await fetch('/api/scripts');
+      if (response.ok) {
+        const scripts = await response.json();
+        return scripts;
+      }
+    } catch (error) {
+      console.warn('Could not fetch scripts from server:', error);
+    }
+    
+    // Return empty array if no scripts found
+    return [];
+  };
+
+  // Function to refresh scripts and reload current script
+  const refreshScriptsAndReload = async () => {
+    try {
+      // Scan for available scripts
+      const scripts = await scanScriptsDirectory();
+      setAvailableScripts(scripts);
+      
+      // Preserve current script if it's still available, otherwise use first script
+      const currentScriptName = currentScript || getSavedScript();
+      if (currentScriptName && scripts.includes(currentScriptName)) {
+        setCurrentScript(currentScriptName);
+      } else if (scripts.length > 0) {
+        setCurrentScript(scripts[0]);
+        saveScript(scripts[0]);
+      }
+      
+      // Reload the current script
+      await loadGame();
+    } catch (error) {
+      console.error('Error refreshing scripts:', error);
+    }
+  };
+
+  // Initialize scripts on mount
+  useEffect(() => {
+    const initializeScripts = async () => {
+      const scripts = await scanScriptsDirectory();
+      setAvailableScripts(scripts);
+      
+      // Get the saved script or default to first available script
+      const savedScript = getSavedScript();
+      console.log('Available scripts:', scripts);
+      console.log('Saved script:', savedScript);
+      
+      if (savedScript && scripts.includes(savedScript)) {
+        console.log('Using saved script:', savedScript);
+        setCurrentScript(savedScript);
+      } else if (scripts.length > 0) {
+        console.log('Using default script:', scripts[0]);
+        setCurrentScript(scripts[0]);
+        saveScript(scripts[0]); // Save the default script
+      }
+    };
+    
+    initializeScripts();
+  }, []);
 
   useEffect(() => {
-    loadGame();
+    if (currentScript && currentScript.trim()) {
+      loadGame();
+    }
   }, [currentScript]);
 
   const loadGame = async () => {
+    if (!currentScript || !currentScript.trim()) {
+      console.warn('No script selected, skipping game load');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -77,8 +171,18 @@ export default function GamePage() {
     }
   };
 
+  const handleScriptLoad = (scriptName: string) => {
+    setCurrentScript(scriptName);
+    saveScript(scriptName); // Save the selected script
+  };
+
   const handleScriptReload = () => {
     loadGame();
+  };
+
+  const handleResetGame = () => {
+    // Refresh scripts and reload current script
+    refreshScriptsAndReload();
   };
 
   if (loading) {
@@ -93,6 +197,39 @@ export default function GamePage() {
           >
             Test Parser
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if no scripts are available
+  if (availableScripts.length === 0 && !loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-center">
+          <div className="text-yellow-500 text-6xl mb-4">📁</div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Scripts Found</h1>
+          <p className="text-gray-600 mb-4">No .twee files found in the scripts directory.</p>
+          <p className="text-sm text-gray-500 mb-4">Please add .twee files to the public/scripts folder.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if no script is selected yet
+  if (!currentScript && !loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-center">
+          <div className="text-blue-500 text-6xl mb-4">⏳</div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Initializing...</h1>
+          <p className="text-gray-600 mb-4">Loading available scripts...</p>
         </div>
       </div>
     );
@@ -133,6 +270,10 @@ export default function GamePage() {
       gameEngine={gameEngine}
       gameData={gameData}
       onScriptReload={handleScriptReload}
+      currentScript={currentScript}
+      onScriptLoad={handleScriptLoad}
+      availableScripts={availableScripts}
+      onResetGame={handleResetGame}
     />
   );
 }

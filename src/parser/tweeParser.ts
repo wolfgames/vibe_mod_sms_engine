@@ -3,15 +3,20 @@ import { GameData, Contact, Round, Choice, Action, ParsedPassage, ParserError, P
 export class TweeParser {
   private errors: ParserError[] = [];
   private warnings: ParserError[] = [];
+  private variables: Record<string, any> = {};
 
   parseTweeFile(content: string): ParserResult {
     this.errors = [];
     this.warnings = [];
+    this.variables = {};
 
     const lines = content.split('\n');
     const passages: ParsedPassage[] = [];
     let currentPassage: ParsedPassage | null = null;
     let lineNumber = 0;
+
+    // First pass: extract variables from all passages
+    this.extractVariablesFromAllPassages(lines);
 
     for (const line of lines) {
       lineNumber++;
@@ -46,8 +51,31 @@ export class TweeParser {
     };
   }
 
+  private extractVariablesFromAllPassages(lines: string[]): void {
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Parse Harlowe variable assignments: (set: $var to value)
+      const setMatch = trimmedLine.match(/\(set:\s*\$(\w+)\s+to\s+(.+?)\)/);
+      if (setMatch) {
+        const varName = setMatch[1];
+        const varValueStr = setMatch[2].trim();
+        
+        // Handle special Harlowe values like 'it', 'true', 'false'
+        let varValue;
+        if (varValueStr === 'it') {
+          varValue = 'it';
+        } else {
+          varValue = this.parseVariableValue(varValueStr);
+        }
+        
+        this.variables[varName] = varValue;
+      }
+    }
+  }
+
   private parsePassageHeader(line: string, lineNumber: number): ParsedPassage {
-    // Format: :: Round-1 [Jamie initial_contact] {"position":"575,375","size":"100,100"}
+    // Format: :: Jamie-Round-1 [initial_contact] {"position":"575,375","size":"100,100"}
     // Also handle metadata passages like :: StoryTitle and :: StoryData
     const match = line.match(/^::\s+([^[]+)\s*\[([^\]]+)\]\s*(.*)$/);
     
@@ -80,8 +108,6 @@ export class TweeParser {
 
     const title = match[1].trim();
     const tags = match[2].split(/\s+/).map(tag => tag.trim()).filter(tag => tag.length > 0);
-    
-
     
     // Parse position and size from JSON
     let position: { x: number; y: number } | undefined;
@@ -132,7 +158,7 @@ export class TweeParser {
 
   private convertPassagesToGameData(passages: ParsedPassage[]): GameData {
     const contacts: Record<string, Contact> = {};
-    const variables: Record<string, any> = {};
+    const variables: Record<string, any> = { ...this.variables };
     const startingPassages: string[] = [];
     const conditions: Record<string, string> = {};
 
@@ -146,15 +172,32 @@ export class TweeParser {
         continue;
       }
 
-      // Extract contact information from tags
-      const contactName = this.extractContactName(passage);
+      // Handle Initial Variables passage
+      if (passage.title === 'Initial Variables' || passage.tags.includes('initial_variables')) {
+        // Extract variable assignments from this passage
+        const lines = passage.content.split('\n');
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          const setMatch = trimmedLine.match(/\(set:\s*\$(\w+)\s+to\s+(.+?)\)/);
+          if (setMatch) {
+            const varName = setMatch[1];
+            const varValueStr = setMatch[2].trim();
+            const varValue = this.parseVariableValue(varValueStr);
+            variables[varName] = varValue;
+          }
+        }
+        continue;
+      }
+
+      // Extract contact information from passage title (new format)
+      const contactInfo = this.extractContactAndRoundInfo(passage.title);
       
-      if (contactName) {
+      if (contactInfo) {
+        const { contactName, roundKey } = contactInfo;
+        
         // Check if this is an initial contact (has 'initial_contact' tag)
         const isInitialContact = passage.tags.includes('initial_contact');
         const isUnlocked = isInitialContact || passage.tags.includes('unlocked');
-
-
 
         if (!contacts[contactName]) {
           contacts[contactName] = {
@@ -174,13 +217,8 @@ export class TweeParser {
 
         // Parse round content
         const round = this.parseRound(passage);
-        if (round) {
-          // Extract round number from title (e.g., "Round-1" -> 1, "Round-2.1" -> 2.1)
-          const roundMatch = passage.title.match(/Round-(\d+(?:\.\d+)?)/);
-          if (roundMatch) {
-            const roundKey = roundMatch[1];
-            contacts[contactName].rounds[roundKey] = round;
-          }
+        if (round && roundKey) {
+          contacts[contactName].rounds[roundKey] = round;
         }
       }
     }
@@ -196,163 +234,303 @@ export class TweeParser {
         title: storyTitle,
         format: 'Harlowe',
         formatVersion: '3.3.9',
-        startPassage: 'Round-1'
+        startPassage: 'Jamie-Round-1'
       }
     };
   }
 
-  private extractContactName(passage: ParsedPassage): string | null {
-    // Look for contact name in tags
-    for (const tag of passage.tags) {
-      // Skip special tags
-      if (tag === 'initial_contact' || tag === 'unlocked') {
-        continue;
-      }
-      // Return the first non-special tag as the contact name
-      return tag;
+  private extractContactAndRoundInfo(title: string): { contactName: string; roundKey: string } | null {
+    // Handle format: "ContactName-Round-X.X"
+    // "Jamie-Round-1" -> contactName: "Jamie", roundKey: "1"
+    // "Jamie-Round-2.1" -> contactName: "Jamie", roundKey: "2.1"
+    // "Jamie-Round-1.0" -> contactName: "Jamie", roundKey: "1.0"
+    const match = title.match(/^([^-]+)-Round-(\d+(?:\.\d+)?)$/);
+    
+    if (match) {
+      const contactName = match[1].trim();
+      const roundKey = match[2];
+      
+      // Keep the full round number format (e.g., "6.0", "5.1", etc.)
+      const finalRoundKey = roundKey;
+      
+      return { contactName, roundKey: finalRoundKey };
     }
+    
     return null;
   }
 
   private parseRound(passage: ParsedPassage): Round | null {
-    if (!passage.content.trim()) {
+    const content = passage.content;
+    if (!content.trim()) {
       return null;
     }
 
-    const { passage: responseText, choices, actions } = this.parseRoundContent(passage.content);
+    // Store the original content with conditionals
+    const originalContent = content;
+
+    // First, evaluate conditional content using current variables
+    const evaluatedContent = this.evaluateConditionalContent(content, this.variables);
+    
+    const { passage: passageText, actions, choices } = this.parseRoundContent(evaluatedContent);
 
     return {
-      passage: responseText,
-      choices,
-      actions
+      passage: passageText,
+      actions: actions,
+      choices: choices,
+      originalContent: originalContent
     };
   }
 
-  private parseRoundContent(content: string): { passage: string; choices: Choice[]; actions: Action[] } {
-    const choices: Choice[] = [];
+  public parseRoundContent(content: string): { passage: string; actions: Action[]; choices: Choice[] } {
+    const lines = content.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    let passage = '';
     const actions: Action[] = [];
+    const choices: Choice[] = [];
 
-    // Parse choices [[Choice Text|Target Round]]
-    const choiceRegex = /\[\[([^\]]+)\]\]/g;
-    let choiceMatch;
-    while ((choiceMatch = choiceRegex.exec(content)) !== null) {
-      const choiceText = choiceMatch[1].trim();
-      let targetPassage = choiceText;
-      let displayText = choiceText;
-      
-      // Check if there's a pipe separator for target passage
-      if (choiceText.includes('|')) {
-        const parts = choiceText.split('|');
-        displayText = parts[0].trim();
-        targetPassage = parts[1].trim();
+    for (const line of lines) {
+      if (line.startsWith('[Action:')) {
+        // Parse standalone action
+        const actionText = line.replace('[Action:', '').replace(']', '').trim();
+        const action = this.parseAction(actionText);
+        if (action) {
+          actions.push(action);
+        }
+      } else if (line.startsWith('[[') && line.endsWith(']]')) {
+        const choiceMatch = line.match(/\[\[(.*?)\|(.*?)\]\]/);
+        if (choiceMatch) {
+          const choiceText = choiceMatch[1].trim();
+          const targetRound = choiceMatch[2].trim();
+
+          const actionMatch = choiceText.match(/\[Action:\s*(.*?)\]/);
+          let cleanChoiceText = choiceText;
+          let embeddedAction: Action | null = null;
+
+          if (actionMatch) {
+            const actionText = actionMatch[1].trim();
+            embeddedAction = this.parseAction(actionText);
+            cleanChoiceText = choiceText.replace(/\[Action:\s*.*?\]/, '').trim();
+          }
+
+          choices.push({
+            text: cleanChoiceText,
+            targetRound: targetRound,
+            embeddedAction: embeddedAction
+          });
+        }
+      } else {
+        passage += line + '\n';
       }
-      
-      choices.push({
-        text: displayText,
-        targetPassage,
-        displayText: undefined
-      });
     }
 
-    // Parse actions [Action: action_type:parameters]
-    // Fixed regex to handle action types with underscores and other characters
-    const actionRegex = /\[Action:\s*([^:\]]+):\s*([^\]]+)\]/g;
-    let actionMatch;
-    while ((actionMatch = actionRegex.exec(content)) !== null) {
-      const actionType = actionMatch[1].trim();
-      const parameters = this.parseActionParameters(actionMatch[2]);
-      
-      actions.push({
-        type: actionType as any,
-        parameters
-      });
-    }
-
-    // Remove choices, actions, and variable assignments from content to get clean passage text
-    let cleanContent = content
-      .replace(/\[\[[^\]]+\]\]/g, '')
-      .replace(/\[Action:[^\]]+\]/g, '')
-      .replace(/\(set:\s*\$[^)]+\s+to\s+[^)]+\)/g, '') // Remove Harlowe variable assignments
-      .trim();
-
-    return {
-      passage: cleanContent,
-      choices,
-      actions
-    };
+    return { passage: passage.trim(), actions, choices };
   }
 
-  private parseActionParameters(paramString: string): Record<string, string | number | boolean> {
+  setVariables(variables: Record<string, any>): void {
+    this.variables = { ...variables };
+  }
+
+  public evaluateConditionalContent(content: string, variables: Record<string, any>): string {
+    // Handle Harlowe conditional syntax: (if: $variable is true/false)
+    // This method needs to handle multiple conditionals in the same content
+    let result = content;
+    
+    // Find all conditional blocks
+    const conditionalRegex = /\(if:\s*\$([a-zA-Z_][a-zA-Z0-9_]*)\s+is\s+(true|false)\)\s*\n?([\s\S]*?)(?=\(if:\s*\$[a-zA-Z_][a-zA-Z0-9_]*\s+is\s+(true|false)\)|$)/g;
+    
+    result = result.replace(conditionalRegex, (match, variableName, expectedValue, conditionalContent) => {
+      const actualValue = variables[variableName];
+      const expectedBool = expectedValue === 'true';
+      
+      if (actualValue === expectedBool) {
+        // Return the content within this conditional block
+        return conditionalContent;
+      } else {
+        // Return empty string if condition doesn't match
+        return '';
+      }
+    });
+    
+    return result;
+  }
+
+  private parseAction(actionText: string): Action | null {
+    // Parse action in format: "action_type:parameters"
+    const colonIndex = actionText.indexOf(':');
+    if (colonIndex === -1) return null;
+    
+    const actionType = actionText.substring(0, colonIndex).trim();
+    const parameters = actionText.substring(colonIndex + 1).trim();
+    
+    return this.parseActionWithParameters(actionType, parameters);
+  }
+
+  private parseActionWithParameters(actionType: string, parameters: string): Action | null {
     const params: Record<string, string | number | boolean> = {};
     
-    // Handle simple parameter format like "Maya Delgado" (no key:value pairs)
-    if (!paramString.includes(':')) {
-      // Check if it's a number
-      const numValue = parseInt(paramString.trim());
-      if (!isNaN(numValue)) {
-        params.value = numValue;
-      } else {
-        // This is a simple value, treat it as contactName
-        params.contactName = paramString.trim();
-      }
-      return params;
+    switch (actionType) {
+      case 'unlock_contact':
+        // Parse comma-separated format: character
+        const unlockParts = parameters.split(',').map(p => p.trim());
+        let character = unlockParts[0] || 'Maya';
+        
+        if (character.startsWith('$')) {
+          params.variable_ref = character;
+        } else {
+          params.contactName = character;
+        }
+        break;
+      
+      case 'drop_pin':
+        // Parse comma-separated format: location, description, file, character
+        const parts = parameters.split(',').map(p => p.trim());
+        
+        let location = 'Freight Warehouse District';
+        let description = 'An old warehouse by the train tracks';
+        let file = 'Map.png';
+        let dropPinCharacter = undefined;
+        
+        if (parts.length >= 1) location = parts[0];
+        if (parts.length >= 2) description = parts[1];
+        if (parts.length >= 3) file = parts[2];
+        if (parts.length >= 4) dropPinCharacter = parts[3];
+        
+        params.location = location;
+        params.description = description;
+        params.file = file;
+        if (dropPinCharacter) params.character = dropPinCharacter;
+        break;
+      
+      case 'send_photo':
+        // Parse named parameter format: file: "filename" caption: "caption" delay: number
+        let photoFile = 'front_door.png';
+        let photoCaption = 'Front door with padlock';
+        let photoDelay = undefined;
+        
+        // Extract file parameter
+        const fileMatch = parameters.match(/file:\s*"([^"]+)"/);
+        if (fileMatch) {
+          photoFile = fileMatch[1];
+        }
+        
+        // Extract caption parameter
+        const captionMatch = parameters.match(/caption:\s*"([^"]+)"/);
+        if (captionMatch) {
+          photoCaption = captionMatch[1];
+        }
+        
+        // Extract delay parameter
+        const photoDelayMatch = parameters.match(/delay:\s*(\d+)/);
+        if (photoDelayMatch) {
+          photoDelay = parseInt(photoDelayMatch[1]);
+        }
+        
+        params.file = photoFile;
+        params.caption = photoCaption;
+        if (photoDelay) params.delay = photoDelay;
+        break;
+      
+      case 'send_video':
+        // Parse named parameter format: file: "filename" caption: "caption" delay: number
+        let videoFile = 'inside_warehouse.png';
+        let videoCaption = 'Inside the warehouse';
+        let videoDelay = undefined;
+        
+        // Extract file parameter
+        const videoFileMatch = parameters.match(/file:\s*"([^"]+)"/);
+        if (videoFileMatch) {
+          videoFile = videoFileMatch[1];
+        }
+        
+        // Extract caption parameter
+        const videoCaptionMatch = parameters.match(/caption:\s*"([^"]+)"/);
+        if (videoCaptionMatch) {
+          videoCaption = videoCaptionMatch[1];
+        }
+        
+        // Extract delay parameter
+        const videoDelayMatch = parameters.match(/delay:\s*(\d+)/);
+        if (videoDelayMatch) {
+          videoDelay = parseInt(videoDelayMatch[1]);
+        }
+        
+        params.file = videoFile;
+        params.caption = videoCaption;
+        if (videoDelay) params.delay = videoDelay;
+        break;
+      
+      case 'end_thread':
+        // Parse optional parameter: 0 = do not show message, 1 (or omitted) = show message
+        let showMessage = true;
+        if (parameters === '0') showMessage = false;
+        params.showMessage = showMessage;
+        break;
+      
+      case 'call_911':
+        // No parameters needed
+        break;
+      
+      case 'open_thread':
+        const openMatch = parameters.match(/character:\s*"([^"]+)"/);
+        const threadMatch = parameters.match(/thread_id:\s*"([^"]+)"/);
+        if (openMatch) params.character = openMatch[1];
+        if (threadMatch) params.thread_id = threadMatch[1];
+        break;
+      
+      case 'delayed_message':
+        // Support both named and comma-separated (delay, message) formats
+        let delay = 3500; // default
+        let message = 'This is a delayed message.'; // default
+        
+        // Try named parameters first
+        const messageDelayMatch = parameters.match(/delay:\s*(\d+)/);
+        if (messageDelayMatch) {
+          delay = parseInt(messageDelayMatch[1]);
+        }
+        const messageMatch = parameters.match(/message:\s*"([^"]+)"/);
+        if (messageMatch) {
+          message = messageMatch[1];
+        }
+        // If not found, try the format: 1000 message: "text" (delay first, then message)
+        if (!messageDelayMatch && !messageMatch) {
+          const delayFirstMatch = parameters.match(/^(\d+)\s+message:\s*"([^"]+)"/);
+          if (delayFirstMatch) {
+            delay = parseInt(delayFirstMatch[1]);
+            message = delayFirstMatch[2];
+          } else {
+            // Fallback to comma-separated
+            const delayedParts = parameters.split(',').map(p => p.trim());
+            if (delayedParts.length >= 1) delay = parseInt(delayedParts[0]);
+            if (delayedParts.length >= 2) message = delayedParts[1];
+          }
+        }
+        params.delay = delay;
+        params.message = message;
+        break;
+      
+      case 'set_variable':
+        // Parse format: variableName,value
+        const varParts = parameters.split(',').map(p => p.trim());
+        if (varParts.length >= 2) {
+          const varName = varParts[0];
+          const varValue = this.parseVariableValue(varParts[1]);
+          params.variableName = varName;
+          params.variableValue = varValue;
+        }
+        break;
+      
+      case 'trigger_eli_needs_code':
+        // No parameters needed
+        break;
+      
+      default:
+        console.warn(`Unknown action type: ${actionType}`);
+        return null;
     }
     
-    // Handle named parameter format: file: "filename" caption: "caption" delay: number
-    // Extract file parameter
-    const fileMatch = paramString.match(/file:\s*"([^"]+)"/);
-    if (fileMatch) {
-      params.file = fileMatch[1];
-    }
-    
-    // Extract caption parameter
-    const captionMatch = paramString.match(/caption:\s*"([^"]+)"/);
-    if (captionMatch) {
-      params.caption = captionMatch[1];
-    }
-    
-    // Extract delay parameter
-    const delayMatch = paramString.match(/delay:\s*(\d+)/);
-    if (delayMatch) {
-      params.delay = parseInt(delayMatch[1]);
-    }
-    
-    // Extract message parameter
-    const messageMatch = paramString.match(/message:\s*"([^"]+)"/);
-    if (messageMatch) {
-      params.message = messageMatch[1];
-    }
-    
-    // Extract character parameter
-    const characterMatch = paramString.match(/character:\s*"([^"]+)"/);
-    if (characterMatch) {
-      params.character = characterMatch[1];
-    }
-    
-    // Extract thread_id parameter
-    const threadIdMatch = paramString.match(/thread_id:\s*"([^"]+)"/);
-    if (threadIdMatch) {
-      params.thread_id = threadIdMatch[1];
-    }
-    
-    // Handle comma-separated format for unlock_contact: "Maya Delgado"
-    const commaMatch = paramString.match(/^"([^"]+)"$/);
-    if (commaMatch) {
-      params.contactName = commaMatch[1];
-    }
-    
-    return params;
-  }
-
-  private parseVariables(content: string, variables: Record<string, any>): void {
-    // Parse Harlowe variable assignments: (set: $var to value)
-    const varRegex = /\(set:\s*\$([^)]+)\s+to\s+([^)]+)\)/g;
-    let match;
-    while ((match = varRegex.exec(content)) !== null) {
-      const varName = match[1].trim();
-      const varValue = this.parseVariableValue(match[2].trim());
-      variables[varName] = varValue;
-    }
+    return {
+      type: actionType as any,
+      parameters: params
+    };
   }
 
   private parseVariableValue(valueStr: string): any {

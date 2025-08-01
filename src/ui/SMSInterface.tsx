@@ -10,12 +10,25 @@ interface SMSInterfaceProps {
   gameEngine: GameEngine;
   gameData: GameData;
   onScriptReload?: () => void;
+  currentScript?: string;
+  onScriptLoad?: (scriptName: string) => void;
+  availableScripts?: string[];
+  onResetGame?: () => void;
 }
 
-export default function SMSInterface({ gameEngine, gameData, onScriptReload }: SMSInterfaceProps) {
+export default function SMSInterface({ 
+  gameEngine, 
+  gameData, 
+  onScriptReload, 
+  currentScript = 'Unknown Script',
+  onScriptLoad,
+  availableScripts = [],
+  onResetGame
+}: SMSInterfaceProps) {
   const [selectedContact, setSelectedContact] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState>(gameEngine.getGameState());
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   // Initialize typing delay with the game engine's current value instead of 0
   const [typingDelay, setTypingDelay] = useState(() => gameEngine.getGlobalTypingDelay());
@@ -107,22 +120,32 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
   const handleContactSelect = (contactName: string) => {
     setSelectedContact(contactName);
     
-    // Mark messages as read when entering conversation
-    gameEngine.markContactMessagesAsRead(contactName);
+    // Get the current round for this contact
+    gameEngine.getCurrentRound(contactName);
     
-    // Initialize conversation if no messages exist yet
-    const messages = gameEngine.getContactMessages(contactName);
-    if (messages.length === 0) {
-      const contact = gameEngine.getContactData(contactName);
-      // Safety check: ensure contact exists and has rounds
-      if (contact && contact.rounds && contact.rounds[1]) {
-        const round1 = contact.rounds[1];
-        if (round1 && round1.passage && round1.passage.trim()) {
-          // Only add initial message if there's actual content
-          gameEngine.addMessage(contactName, round1.passage, false);
+    // Add initial message if this is the first time selecting this contact
+    const contact = gameEngine.getContactData(contactName);
+    if (contact && contact.rounds) {
+      // Try to find the initial round - check for "1.0" or the first available round
+      let initialRound = contact.rounds['1.0'];
+      
+      // If no initial round found, try the first available round
+      if (!initialRound && Object.keys(contact.rounds).length > 0) {
+        const firstRoundKey = Object.keys(contact.rounds).sort()[0];
+        initialRound = contact.rounds[firstRoundKey];
+      }
+      
+      if (initialRound && initialRound.passage && initialRound.passage.trim()) {
+        // Check if the initial message already exists to prevent duplicates
+        const existingMessages = gameEngine.getContactMessages(contactName);
+        const initialMessageExists = existingMessages.some(msg => 
+          msg.text === initialRound.passage && !msg.isFromPlayer
+        );
+        
+        // Only add initial message if it doesn't already exist
+        if (!initialMessageExists) {
+          gameEngine.addMessage(contactName, initialRound.passage, false);
         }
-      } else {
-        console.warn(`Contact ${contactName} not found in gameData or missing rounds`);
       }
     }
   };
@@ -143,9 +166,32 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
   };
 
   const handleResetGame = () => {
+    // Reset the game engine
     gameEngine.resetGame();
+    
+    // Clear all UI state
     setGameState(gameEngine.getGameState());
     setSelectedContact(null);
+    setNotifications([]);
+    setShowDebugPanel(false);
+    setShowScriptPanel(false);
+    
+    // Call the parent's reset handler to refresh scripts and reload
+    if (onResetGame) {
+      onResetGame();
+    }
+    
+    // Force a re-render by updating the game state
+    setTimeout(() => {
+      setGameState({ ...gameEngine.getGameState() });
+    }, 100);
+  };
+
+  const handleScriptLoad = (scriptName: string) => {
+    if (onScriptLoad) {
+      onScriptLoad(scriptName);
+      setShowScriptPanel(false);
+    }
   };
 
   const unlockedContacts = gameEngine.getUnlockedContacts();
@@ -179,15 +225,63 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
            Reset
          </button>
          
-        {onScriptReload && (
-          <button
-            onClick={onScriptReload}
-            className="px-3 py-2 bg-green-500 rounded-lg text-sm text-white hover:bg-green-600 transition-colors shadow-lg"
-          >
-            Reload Script
-          </button>
-        )}
+        <button
+          onClick={() => setShowScriptPanel(!showScriptPanel)}
+          className="px-3 py-2 bg-green-500 rounded-lg text-sm text-white hover:bg-green-600 transition-colors shadow-lg"
+        >
+          Load Script
+        </button>
       </div>
+
+      {/* Script Loading Panel - Outside iPhone Frame */}
+      {showScriptPanel && (
+        <div className="absolute top-16 left-4 w-96 bg-gray-900 border border-gray-700 rounded-lg p-4 overflow-y-auto z-50 shadow-2xl">
+          <h3 className="text-lg font-semibold mb-4 text-white">Script Manager</h3>
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-medium mb-2 text-gray-300">Current Script</h4>
+              <div className="bg-gray-800 text-gray-200 p-3 rounded text-sm">
+                {currentScript}
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="font-medium mb-2 text-gray-300">Available Scripts</h4>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {availableScripts.map((script) => (
+                  <button
+                    key={script}
+                    onClick={() => handleScriptLoad(script)}
+                    className={`w-full text-left p-3 rounded transition-colors ${
+                      script === currentScript
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-800 text-gray-200 hover:bg-gray-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">{script}</span>
+                      {script === currentScript && (
+                        <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-700">
+              <button
+                onClick={() => setShowScriptPanel(false)}
+                className="w-full px-3 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
              {/* Debug Panel - Outside iPhone Frame */}
        {showDebugPanel && (
@@ -241,12 +335,64 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
                  </button>
                </div>
              </div>
-             <div>
-               <h4 className="font-medium mb-2 text-gray-300">Notifications</h4>
-               <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
-                 {JSON.stringify(notifications, null, 2)}
-               </pre>
-             </div>
+                           <div>
+                <h4 className="font-medium mb-2 text-gray-300">Test Actions</h4>
+                <div className="space-y-2">
+                                     <button 
+                     onClick={() => {
+                       gameEngine.setVariable('eli_thread_1_complete', true);
+                     }}
+                     className="w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                   >
+                     Set eli_thread_1_complete = true
+                   </button>
+                   <button 
+                     onClick={() => {
+                       gameEngine.setVariable('eli_thread_1_complete', false);
+                     }}
+                     className="w-full px-3 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                   >
+                     Set eli_thread_1_complete = false
+                   </button>
+                                                             <button 
+                        onClick={() => {
+                          gameEngine.setVariable('eli_thread_1_complete', true);
+                          gameEngine.triggerConditionalThreadUnlock();
+                        }}
+                      className="w-full px-3 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+                    >
+                      Set True + Trigger Unlock
+                    </button>
+                                                                <button 
+                         onClick={() => {
+                           gameEngine.setVariable('eli_thread_1_complete', false);
+                           // Manually lock the threads
+                           gameEngine.state.threadStates['Jamie'] = 'locked';
+                           gameEngine.state.threadStates['Maya'] = 'locked';
+                           gameEngine.events.onThreadStateChanged('Jamie', 'locked');
+                           gameEngine.events.onThreadStateChanged('Maya', 'locked');
+                         }}
+                       className="w-full px-3 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700"
+                     >
+                       Lock Threads for Testing
+                     </button>
+                     <button 
+                       onClick={() => {
+                         gameEngine.unlockContact('Eli Mercer');
+                       }}
+                       className="w-full px-3 py-2 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
+                     >
+                       Unlock Eli
+                     </button>
+                </div>
+              </div>
+              <div>
+                <h4 className="font-medium mb-2 text-gray-300">Notifications</h4>
+                <pre className="text-xs bg-gray-800 text-gray-200 p-2 rounded">
+                  {JSON.stringify(notifications, null, 2)}
+                </pre>
+              </div>
+
            </div>
          </div>
        )}
@@ -330,18 +476,29 @@ export default function SMSInterface({ gameEngine, gameData, onScriptReload }: S
                                  {/* Conversation */}
                  {selectedContact && (
                    <div className="absolute inset-0 bg-black">
-                                           <Conversation
-                        contactName={selectedContact}
-                        contact={gameEngine.getContactData(selectedContact) || { name: selectedContact, unlocked: false, playerInitiated: false, rounds: {} }}
-                        messages={gameEngine.getContactMessages(selectedContact)}
-                        currentRound={gameEngine.getCurrentRound(selectedContact)}
-                        threadState={gameEngine.getContactState(selectedContact)}
-                        onChoiceSelect={handleChoiceSelect}
-                        onBack={handleBackToMessages}
-                        typingDelay={typingDelay}
-                        onUnlockContactClick={handleUnlockContactClick}
-                        gameEngine={gameEngine}
-                      />
+                     {(() => {
+                       const contact = gameEngine.getContactData(selectedContact);
+                       const currentRound = gameEngine.getCurrentRoundData(selectedContact);
+                       const contactRounds = contact?.rounds || {};
+                       
+                                               const currentRoundNumber = gameEngine.getCurrentRound(selectedContact);
+                
+                        
+                        return (
+                          <Conversation
+                            key={`${selectedContact}-${currentRound?.passage || 'no-passage'}`}
+                            contactName={selectedContact}
+                            roundNumber={currentRoundNumber}
+                            currentRound={currentRound}
+                            contactRounds={contactRounds}
+                            choices={currentRound?.choices || []}
+                            messages={gameEngine.getContactMessages(selectedContact)}
+                            onChoiceSelect={handleChoiceSelect}
+                            onUnlockContactClick={handleUnlockContactClick}
+                            onBack={handleBackToMessages}
+                          />
+                        );
+                     })()}
                    </div>
                  )}
               </div>

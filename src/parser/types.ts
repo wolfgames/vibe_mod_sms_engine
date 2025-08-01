@@ -9,20 +9,33 @@ export interface Contact {
 
 export interface Round {
   passage: string;
-  choices: Choice[];
   actions: Action[];
-  conditions?: string;
+  choices: Choice[];
+  originalContent?: string; // Store the original content with conditionals
 }
 
 export interface Choice {
   text: string;
-  targetPassage: string;
-  displayText?: string;
+  targetRound: string;
+  embeddedAction?: Action | null;
 }
 
 export interface Action {
-  type: 'unlock_contact' | 'drop_pin' | 'send_photo' | 'send_video' | 'end_thread' | 'call_911' | 'open_thread' | 'delayed_message' | 'trigger_eli_needs_code' | 'typing_indicator' | 'set_typing_delay' | 'show_notification' | 'vibrate' | 'set_contact_status' | 'trigger_emergency_call';
+  type: 'unlock_contact' | 'drop_pin' | 'send_photo' | 'send_video' | 'end_thread' | 'call_911' | 'open_thread' | 'delayed_message' | 'trigger_eli_needs_code' | 'typing_indicator' | 'set_typing_delay' | 'show_notification' | 'vibrate' | 'set_contact_status' | 'trigger_emergency_call' | 'set_variable';
   parameters: Record<string, string | number | boolean>;
+  // Add specific fields for better type safety
+  character?: string;
+  location?: string;
+  description?: string;
+  file?: string;
+  caption?: string;
+  thread_id?: string;
+  delay?: number;
+  message?: string;
+  showMessage?: boolean;
+  variable_ref?: string;
+  variableName?: string;
+  variableValue?: any;
 }
 
 export interface GameData {

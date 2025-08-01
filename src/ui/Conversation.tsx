@@ -1,142 +1,184 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Contact } from '../parser/types';
 import { Message } from '../engine/gameEngine';
-import MessageBubble from './MessageBubble';
+import ChoiceButtons from './ChoiceButtons';
+import Call911Animation from './Call911Animation';
 
 interface ConversationProps {
   contactName: string;
-  contact: Contact;
+  roundNumber: string;
+  currentRound: any;
+  contactRounds: Record<string, any>;
+  choices: any[];
   messages: Message[];
-  currentRound: string;
-  threadState: 'active' | 'locked' | 'ended';
   onChoiceSelect: (choiceIndex: number) => void;
-  onBack: () => void;
-  typingDelay?: number;
-  onUnlockContactClick?: (contactName: string) => void;
-  gameEngine?: any; // Add gameEngine prop
+  onUnlockContactClick: (contactName: string) => void;
+  onBack?: () => void;
 }
 
 export default function Conversation({
   contactName,
-  contact,
-  messages,
+  roundNumber,
   currentRound,
-  threadState,
+  contactRounds,
+  choices,
+  messages,
   onChoiceSelect,
-  onBack,
-  typingDelay = 2000,
   onUnlockContactClick,
-  gameEngine
+  onBack
 }: ConversationProps) {
+  
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [show911Animation, setShow911Animation] = useState(false);
+  const [showEnlargedImage, setShowEnlargedImage] = useState(false);
+  const [enlargedImageSrc, setEnlargedImageSrc] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [showChoices, setShowChoices] = useState(false);
-  const [showTypingIndicator, setShowTypingIndicator] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Memoize the current typing delay to ensure stable reference
-  const currentTypingDelay = useMemo(() => {
-    return gameEngine ? gameEngine.getGlobalTypingDelay() : typingDelay;
-  }, [gameEngine, typingDelay]);
+  // Update time every minute
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
+    // Scroll to bottom whenever messages change
     scrollToBottom();
   }, [messages]);
 
-  // Handle typing indicator timing
+  // Additional scroll effect for when new messages are added
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      
-      // Show typing indicator when last message is from player
-      if (lastMessage && lastMessage.isFromPlayer) {
-        setShowTypingIndicator(true);
-        
-        // Hide typing indicator after the delay from debug slider
-        const timer = setTimeout(() => {
-          setShowTypingIndicator(false);
-        }, currentTypingDelay);
-        
-        return () => clearTimeout(timer);
-      } else {
-        setShowTypingIndicator(false);
-      }
-    }
-  }, [messages, currentRound, contact.rounds, currentTypingDelay, contactName]);
+    const timer = setTimeout(() => {
+      scrollToBottom();
+    }, 100); // Small delay to ensure DOM is updated
+    
+    return () => clearTimeout(timer);
+  }, [messages.length]);
 
-  const getCurrentChoices = () => {
-    // Safety check: ensure contact exists and has rounds
-    if (!contact || !contact.rounds) {
-      console.warn(`Contact ${contactName} not found or missing rounds`);
-      return [];
-    }
-    const round = contact.rounds[currentRound];
-    return round?.choices || [];
-  };
+  // Listen for 911 call animation event
+  useEffect(() => {
+    const handle911Call = (event: CustomEvent) => {
+      setShow911Animation(true);
+    };
 
-  const formatTimestamp = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+    window.addEventListener('call-911-animation', handle911Call as EventListener);
+    
+    return () => {
+      window.removeEventListener('call-911-animation', handle911Call as EventListener);
+    };
+  }, []);
 
-  const groupMessagesByDate = (messages: Message[]) => {
-    const groups: { date: string; messages: Message[] }[] = [];
-    let currentGroup: { date: string; messages: Message[] } | null = null;
+  // Initial scroll to bottom when component mounts
+  useEffect(() => {
+    scrollToBottom();
+  }, []);
 
-    messages.forEach(message => {
-      const messageDate = new Date(message.timestamp).toDateString();
-      
-      if (!currentGroup || currentGroup.date !== messageDate) {
-        currentGroup = { date: messageDate, messages: [] };
-        groups.push(currentGroup);
-      }
-      
-      currentGroup.messages.push(message);
-    });
-
-    return groups;
-  };
-
-  const formatDateHeader = (dateString: string): string => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Today';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
-
-  const messageGroups = groupMessagesByDate(messages);
-  const currentChoices = getCurrentChoices();
+  // Scroll to bottom when contact changes
+  useEffect(() => {
+    scrollToBottom();
+  }, [contactName]);
 
   const handleInputClick = () => {
-    if (currentChoices.length > 0) {
+    // Check if thread has ended by looking for thread ended message
+    const threadEnded = messages.some(msg => msg.isThreadEnded);
+    
+
+    
+    // Show choices if available and thread hasn't ended
+    if (currentRound?.choices && currentRound.choices.length > 0 && !threadEnded) {
       setShowChoices(!showChoices);
+      // Scroll to bottom when choices appear
+      setTimeout(() => {
+        scrollToBottom();
+      }, 50);
     }
   };
 
   const handleChoiceSelect = (choiceIndex: number) => {
-    // Close choices after selection
-    setShowChoices(false);
-    // Call the parent's choice handler
     onChoiceSelect(choiceIndex);
+    setShowChoices(false);
   };
 
-    return (
-    <div className="flex flex-col h-full bg-black">
+  const handleBackdropClick = () => {
+    setShowChoices(false);
+  };
+
+  const handleLocationPinClick = () => {
+    setShowMap(!showMap);
+  };
+
+  const handleMapClose = () => {
+    setShowMap(false);
+  };
+
+  const handleImageClick = (imageSrc: string) => {
+    setEnlargedImageSrc(imageSrc);
+    setShowEnlargedImage(true);
+  };
+
+  const handleEnlargedImageClose = () => {
+    setShowEnlargedImage(false);
+    setEnlargedImageSrc('');
+  };
+
+  const getAvatar = (name: string) => {
+    // Simple avatar generation based on name
+    const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500', 'bg-yellow-500'];
+    const colorIndex = name.charCodeAt(0) % colors.length;
+    return colors[colorIndex];
+  };
+
+  return (
+    <div className="w-full h-full bg-black flex flex-col">
+      {/* 911 Call Animation */}
+      <Call911Animation
+        isVisible={show911Animation}
+        onComplete={() => setShow911Animation(false)}
+        duration={5000}
+      />
+      
       {/* Grey divider box - from top to messages area */}
       <div className="w-full h-[82px] bg-gray-800 absolute top-0 left-0 z-0"></div>
+      
+      {/* Clock in upper left */}
+      <div className="absolute top-2 left-4 z-20 text-white text-sm font-medium">
+        {currentTime.toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          hour12: true 
+        })}
+      </div>
+      
+      {/* Status bar icons in upper right */}
+      <div className="absolute top-2 right-4 z-20 flex items-center space-x-1">
+        {/* Cellular signal */}
+        <div className="flex items-end space-x-0.5">
+          <div className="w-1 h-1 bg-white rounded-sm"></div>
+          <div className="w-1 h-2 bg-white rounded-sm"></div>
+          <div className="w-1 h-3 bg-white rounded-sm"></div>
+          <div className="w-1 h-4 bg-white rounded-sm"></div>
+        </div>
+        
+        {/* Battery */}
+        <div className="ml-2 flex items-center">
+          <div className="w-6 h-3 border border-white rounded-sm relative">
+            <div className="absolute left-0.5 top-0.5 bottom-0.5 w-4 bg-white rounded-sm"></div>
+            <div className="absolute -right-1 top-0.5 bottom-0.5 w-0.5 bg-white rounded-r-sm"></div>
+          </div>
+          <span className="ml-1 text-white text-xs font-medium">67%</span>
+        </div>
+      </div>
       
       {/* Back arrow */}
       <button 
@@ -151,106 +193,251 @@ export default function Conversation({
 
       {/* Top bar with avatar */}
       <div className="h-[80px] flex flex-col items-center justify-center w-full bg-transparent relative z-10 pt-4">
-        <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center overflow-hidden mb-1">
-          <div className="w-full h-full bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
+        <div className={`w-10 h-10 ${getAvatar(contactName)} rounded-full flex items-center justify-center overflow-hidden mb-1`}>
+          <span className="text-white font-bold text-lg">
             {contactName.charAt(0).toUpperCase()}
-          </div>
+          </span>
         </div>
         <span className="text-white font-semibold text-sm">{contactName}</span>
       </div>
 
       {/* Messages area */}
-          <div className="flex-1 w-full px-4 py-2 pb-16 flex flex-col gap-2 overflow-y-auto">
-        {messageGroups.map((group, groupIndex) => (
-          <div key={groupIndex}>
-                                                   {/* Date header */}
-              <div className="flex justify-center my-1">
-                <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full">
-                  {formatDateHeader(group.date)}
-                </span>
+      <div className="flex-1 w-full px-4 py-2 pb-16 flex flex-col gap-2 overflow-y-auto">
+        {messages.map((msg, i) => (
+          <div key={msg.id} className={`flex flex-col ${msg.isFromPlayer ? "items-end" : "items-start"}`}>
+            {/* Typing indicator */}
+            {msg.type === 'typing' && (
+              <div className="flex items-end gap-2">
+                <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
+                  <span className="text-white font-bold text-sm">
+                    {contactName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="bg-gray-200 text-black rounded-2xl rounded-bl-none px-4 py-2 max-w-[200px] text-sm shadow">
+                  <div className="flex space-x-1">
+                    <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
+                </div>
               </div>
-
-                         {/* Messages in this group */}
-             {group.messages.map((message, messageIndex) => (
-               <div key={message.id} className="mb-2">
-                 <MessageBubble
-                   message={message}
-                   timestamp={formatTimestamp(message.timestamp)}
-                   isLastInGroup={messageIndex === group.messages.length - 1}
-                   onUnlockContactClick={onUnlockContactClick}
-                 />
-               </div>
-             ))}
+            )}
+            
+            {/* Regular contact messages */}
+            {!msg.isFromPlayer && !msg.isLocationPin && !msg.isThreadEnded && msg.type !== 'typing' && msg.type !== 'unlock_contact' && (
+              <div className="flex items-end gap-2">
+                <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
+                  <span className="text-white font-bold text-sm">
+                    {contactName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="bg-gray-200 text-black rounded-2xl rounded-bl-none px-4 py-2 max-w-[200px] text-sm shadow">
+                  {msg.text}
+                  {msg.image && (
+                    <button
+                      className="mt-1 w-24 h-24 rounded-lg overflow-hidden border border-gray-400 bg-black/20 block"
+                      onClick={() => handleImageClick(msg.image!)}
+                    >
+                      <img
+                        src={msg.image.startsWith('/') ? msg.image : `/${msg.image}`}
+                        alt="attachment"
+                        className="object-cover w-full h-full"
+                      />
+                      {msg.mediaType === 'location' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                          <span className="text-white text-2xl">📍</span>
+                        </div>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* New contact unlock messages - green styling */}
+            {!msg.isFromPlayer && msg.type === 'unlock_contact' && (
+              <div className="flex items-end gap-2">
+                <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
+                  <span className="text-white font-bold text-sm">
+                    {contactName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <button
+                  className="bg-green-600 text-white rounded-2xl rounded-bl-none px-4 py-2 max-w-[200px] text-sm shadow hover:bg-green-700 transition-colors relative"
+                  onClick={() => msg.unlockedContactName && onUnlockContactClick(msg.unlockedContactName)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">{msg.text}</span>
+                    <div className="flex items-center ml-2">
+                      <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center overflow-hidden border border-gray-300">
+                        <div className={`w-full h-full ${getAvatar(msg.unlockedContactName || '')} flex items-center justify-center`}>
+                          <span className="text-black font-bold text-xs">
+                            {msg.unlockedContactName?.charAt(0).toUpperCase() || '?'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-white text-xs ml-1">&gt;</span>
+                    </div>
+                  </div>
+                  <div className="text-xs mt-1 opacity-80">Tap to open chat</div>
+                </button>
+              </div>
+            )}
+            
+            {/* Location pin messages */}
+            {!msg.isFromPlayer && msg.isLocationPin && (
+              <div className="flex items-end gap-2">
+                <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
+                  <span className="text-white font-bold text-sm">
+                    {contactName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <button
+                  className="bg-green-600 text-white rounded-2xl rounded-bl-none px-4 py-2 max-w-[200px] text-sm shadow hover:bg-green-700 transition-colors"
+                  onClick={() => handleImageClick(msg.image || 'assets/images/map.png')}
+                >
+                  <div className="flex items-center">
+                    <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-sm font-semibold">{msg.locationPin?.location}</span>
+                  </div>
+                  <div className="mt-2 w-full">
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleImageClick(msg.image || 'assets/images/map.png');
+                      }}
+                      className="w-full cursor-pointer"
+                    >
+                      <img
+                        src={msg.image && msg.image.startsWith('/') ? msg.image : `/${msg.image || 'assets/images/map.png'}`}
+                        alt="location"
+                        className="w-full h-16 rounded-lg object-cover border border-white/20 hover:opacity-80 transition-opacity"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs mt-1 opacity-60">Tap to view map</div>
+                </button>
+              </div>
+            )}
+            
+            {/* Thread ended messages - iOS style notification */}
+            {msg.isThreadEnded && (
+              <div className="flex justify-center items-center mb-3 w-full">
+                <div className="text-gray-400 text-xs text-center">
+                  {msg.text}
+                </div>
+              </div>
+            )}
+            
+            {/* Player messages */}
+            {msg.isFromPlayer && !msg.isLocationPin && (
+              <div className="bg-blue-500 text-white rounded-2xl rounded-br-none px-4 py-2 max-w-[200px] text-sm shadow">
+                {msg.text}
+              </div>
+            )}
+            
+            {/* Player location messages */}
+            {msg.isFromPlayer && msg.isLocationPin && (
+              <button
+                className="bg-green-600 text-white rounded-2xl rounded-br-none px-4 py-2 max-w-[200px] text-sm shadow hover:bg-green-700 transition-colors"
+                onClick={() => handleImageClick(msg.image || 'assets/images/map.png')}
+              >
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm font-semibold">{msg.locationPin?.location}</span>
+                </div>
+                <div className="mt-2 w-full">
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleImageClick(msg.image || 'assets/images/map.png');
+                    }}
+                    className="w-full cursor-pointer"
+                  >
+                    <img
+                      src={msg.image && msg.image.startsWith('/') ? msg.image : `/${msg.image || 'assets/images/map.png'}`}
+                      alt="location"
+                      className="w-full h-16 rounded-lg object-cover border border-white/20 hover:opacity-80 transition-opacity"
+                    />
+                  </div>
+                </div>
+                <div className="text-xs mt-1 opacity-60">Tap to view map</div>
+              </button>
+            )}
           </div>
         ))}
-
-        {/* Typing indicator - only show when waiting for contact response after player choice */}
-        {showTypingIndicator && (
-          <div className="flex justify-start mb-4">
-            <div className="bg-gray-800 rounded-2xl px-4 py-2 shadow-sm border border-gray-700">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Thread state message - only show for ended conversations */}
-        {threadState === 'ended' && (
-          <div className="flex justify-center my-4">
-            <div className="text-gray-500 text-sm">
-              The Conversation has ended
-            </div>
-          </div>
-        )}
-
         <div ref={messagesEndRef} />
       </div>
 
-                           {/* Choices overlay */}
-      {threadState === 'active' && currentChoices.length > 0 && showChoices && (
-        <div className="absolute inset-0 bg-black/50 flex items-end justify-center pb-20" onClick={() => setShowChoices(false)}>
-          <div className="w-full px-4 pb-4" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-gray-800 rounded-lg p-4">
-              <div className="text-white text-sm mb-3 font-semibold">Choose your response:</div>
-              <div className="space-y-2">
-                {currentChoices.map((choice: any, index: number) => (
-                  <button
-                    key={index}
-                    className="w-full text-left bg-blue-600 hover:bg-blue-700 rounded-lg px-4 py-2 text-white transition-colors"
-                    onClick={() => handleChoiceSelect(index)}
-                  >
-                    {choice.text}
-                  </button>
-                ))}
+      {/* Input area */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black p-4">
+        <div className="flex items-center space-x-2">
+          <div 
+            className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 text-sm cursor-pointer"
+            onClick={handleInputClick}
+          >
+            <span className="opacity-60">iMessage</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Choice buttons overlay */}
+      {showChoices && choices && choices.length > 0 && (
+        <div className="absolute bottom-16 left-0 right-0 bg-black bg-opacity-50 flex items-end justify-center p-4">
+          <div className="w-full max-w-sm">
+            <ChoiceButtons
+              choices={choices}
+              onChoiceSelect={handleChoiceSelect}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged image modal */}
+      {showEnlargedImage && (
+        <div className="absolute inset-0 z-50 bg-black bg-opacity-95 flex items-center justify-center p-4">
+          <div className="relative w-full h-full flex items-center justify-center">
+            <button
+              onClick={handleEnlargedImageClose}
+              className="absolute top-4 right-4 w-10 h-10 bg-black bg-opacity-50 text-white rounded-full flex items-center justify-center hover:bg-opacity-70 transition-colors z-10"
+            >
+              ×
+            </button>
+            <img
+              src={enlargedImageSrc.startsWith('/') ? enlargedImageSrc : `/${enlargedImageSrc}`}
+              alt="enlarged"
+              className="max-w-full max-h-full object-contain"
+              onClick={handleEnlargedImageClose}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Map modal */}
+      {showMap && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md bg-white rounded-lg overflow-hidden">
+            <div className="p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Location</h3>
+                <button
+                  onClick={handleMapClose}
+                  className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="bg-gray-200 h-48 rounded-lg flex items-center justify-center">
+                <span className="text-gray-500">Map View</span>
               </div>
             </div>
           </div>
         </div>
       )}
-
-                                         {/* Input bar */}
-        <div className="w-full h-[56px] bg-black/90 flex items-center px-4 gap-2 absolute bottom-0 left-0">
-          <button className="w-8 h-8 flex items-center justify-center">
-            <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
-              <rect x="3" y="5" width="18" height="14" rx="3" fill="#fff"/>
-              <circle cx="8" cy="12" r="2" fill="#bbb"/>
-            </svg>
-          </button>
-          <input 
-            className="flex-1 bg-gray-800 text-white rounded-full px-4 py-2 outline-none border-none text-sm"
-            placeholder="iMessage" 
-            onClick={handleInputClick}
-            readOnly
-          />
-          <button className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center ml-2">
-            <svg width="16" height="16" fill="white" viewBox="0 0 16 16">
-              <path d="M4 8h8M8 4l4 4-4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </div>
     </div>
   );
 } 

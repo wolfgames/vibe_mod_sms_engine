@@ -32,15 +32,14 @@ An iPhone SMS conversation game engine that parses Twee files to generate intera
 ## Twee Script Format
 
 ### Contact Definition
-Contacts are defined by their passage tags:
-- `[ContactName Round-X]` - defines contact name and round number
-- `[character_starts]` - contact sends initial message when game starts
-- `[player_starts]` - contact appears in list but requires player to initiate
+Contacts are defined by their passage titles:
+- `ContactName-Round-X` - defines contact name and round number in the passage title
+- `[initial_contact]` - contact sends initial message when game starts
 - `[unlocked]` - contact starts unlocked (default: locked)
 
 ### Passage Structure
 ```
-:: Passage Title [ContactName Round-X tags] {"position":"x,y","size":"w,h"}
+:: ContactName-Round-X [tags] {"position":"x,y","size":"w,h"}
 Dialogue text here
 [[Choice 1]]
 [[Choice 2|Alternative Link Text]]
