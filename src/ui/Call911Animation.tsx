@@ -19,12 +19,16 @@ const Call911Animation: React.FC<Call911AnimationProps> = ({
   useEffect(() => {
     if (!isVisible) return;
 
-    // Animation sequence
+    // Reset state when animation starts
+    setStage('dialing');
+    setCallTime(0);
+
+    // Animation sequence - but don't auto-complete
     const dialingTimer = setTimeout(() => setStage('connecting'), 1500);
     const connectingTimer = setTimeout(() => setStage('connected'), 3000);
     const completeTimer = setTimeout(() => {
       setStage('complete');
-      setTimeout(onComplete, 1000);
+      // Don't auto-call onComplete - let it stay on until reset/refresh
     }, duration - 1000);
 
     return () => {
@@ -32,7 +36,7 @@ const Call911Animation: React.FC<Call911AnimationProps> = ({
       clearTimeout(connectingTimer);
       clearTimeout(completeTimer);
     };
-  }, [isVisible, duration, onComplete]);
+  }, [isVisible, duration]);
 
   useEffect(() => {
     if (stage === 'connected') {
@@ -66,13 +70,13 @@ const Call911Animation: React.FC<Call911AnimationProps> = ({
           </div>
         </div>
 
-        {/* Screen Content */}
+        {/* Screen Content - Phone App Interface */}
         <div className="absolute top-6 left-0 right-0 bottom-0 bg-gradient-to-b from-blue-900 to-blue-800 flex flex-col">
           {/* Call Header */}
           <div className="flex-1 flex flex-col items-center justify-center text-white">
             <div className="text-center mb-8">
               <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center mb-4 mx-auto animate-pulse">
-                <span className="text-2xl">🚨</span>
+                <div className="w-16 h-16 bg-red-500 rounded-full animate-pulse"></div>
               </div>
               <h1 className="text-2xl font-bold mb-2">Emergency</h1>
               <p className="text-lg opacity-90">911</p>
@@ -136,17 +140,28 @@ const Call911Animation: React.FC<Call911AnimationProps> = ({
 
         {/* Home Indicator */}
         <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-32 h-1 bg-white rounded-full opacity-60"></div>
-      </div>
 
-      {/* Emergency Alert Overlay */}
-      {stage === 'connected' && (
-        <div className="absolute top-4 left-4 right-4 bg-red-600 text-white p-3 rounded-lg animate-pulse">
-          <div className="flex items-center space-x-2">
-            <span className="text-xl">🚨</span>
-            <span className="font-semibold">EMERGENCY CALL IN PROGRESS</span>
+        {/* Emergency Alert Banner - Inside the phone frame */}
+        {(stage === 'connected' || stage === 'complete') && (
+          <div className="absolute top-8 left-2 right-2 bg-red-600 text-white p-2 rounded-lg animate-pulse z-10 border border-red-400">
+            <div className="flex items-center justify-center space-x-2 text-xs">
+              <span className="font-semibold">We are dispatching Emergency Services</span>
+            </div>
           </div>
+        )}
+
+        {/* Phone App Icon - Shows this is the Phone app */}
+        <div className="absolute top-8 left-4 w-6 h-6 bg-green-500 rounded-lg flex items-center justify-center">
+          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+          </svg>
         </div>
-      )}
+
+        {/* App Name - Shows this is the Phone app */}
+        <div className="absolute top-8 left-12 text-white text-xs font-medium">
+          Phone
+        </div>
+      </div>
     </div>
   );
 };

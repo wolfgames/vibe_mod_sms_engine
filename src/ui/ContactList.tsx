@@ -30,6 +30,27 @@ export default function ContactList({
     
     if (!lastMessage) return '';
     
+    // Don't show end_thread messages in preview when thread is active
+    if (lastMessage.type === 'end_thread' && threadStates[contactName] === 'active') {
+      // Find the last non-end_thread message
+      for (let i = messages.length - 2; i >= 0; i--) {
+        const message = messages[i];
+        if (message.type !== 'end_thread') {
+          if (message.type === 'photo') {
+            return message.caption || '📷 Photo';
+          } else if (message.type === 'video') {
+            return message.caption || '🎥 Video';
+          } else if (message.type === 'location') {
+            return '📍 Location';
+          } else if (message.type === 'typing') {
+            return 'typing...';
+          }
+          return message.text;
+        }
+      }
+      return ''; // No previous messages found
+    }
+    
     if (lastMessage.type === 'photo') {
       return lastMessage.caption || '📷 Photo';
     } else if (lastMessage.type === 'video') {
@@ -46,6 +67,12 @@ export default function ContactList({
   const getUnreadCount = (contactName: string): number => {
     const messages = messageHistory[contactName] || [];
     return messages.filter(msg => !msg.isFromPlayer && !msg.read).length;
+  };
+
+  const hasStartedConversation = (contactName: string): boolean => {
+    const messages = messageHistory[contactName] || [];
+    // Check if contact has sent any messages (not just player messages)
+    return messages.some(msg => !msg.isFromPlayer);
   };
 
   const getContactStatus = (contactName: string): 'active' | 'locked' | 'ended' => {
@@ -70,7 +97,22 @@ export default function ContactList({
   const getLastMessageTime = (contactName: string): string => {
     const messages = messageHistory[contactName] || [];
     const lastMessage = messages[messages.length - 1];
-    return lastMessage ? formatTimestamp(lastMessage.timestamp) : '';
+    
+    if (!lastMessage) return '';
+    
+    // Don't show end_thread message time in preview when thread is active
+    if (lastMessage.type === 'end_thread' && threadStates[contactName] === 'active') {
+      // Find the last non-end_thread message
+      for (let i = messages.length - 2; i >= 0; i--) {
+        const message = messages[i];
+        if (message.type !== 'end_thread') {
+          return formatTimestamp(message.timestamp);
+        }
+      }
+      return ''; // No previous messages found
+    }
+    
+    return formatTimestamp(lastMessage.timestamp);
   };
 
   return (
@@ -109,8 +151,8 @@ export default function ContactList({
                       {contactName.charAt(0).toUpperCase()}
                     </div>
                   </div>
-                  {/* Blue dot indicator for new contacts that haven't been viewed */}
-                  {unreadCount > 0 && !viewedContacts.has(contactName) && (
+                  {/* Blue dot indicator for unread messages from contacts who have started conversations */}
+                  {hasStartedConversation(contactName) && unreadCount > 0 && !viewedContacts.has(contactName) && (
                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full border-2 border-black"></div>
                   )}
                 </div>

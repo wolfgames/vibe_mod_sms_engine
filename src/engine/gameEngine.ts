@@ -99,7 +99,7 @@ export class GameEngine {
       unlockedContacts: initiallyUnlocked,
       viewedContacts: new Set<string>(), // Initialize empty set for viewed contacts
 
-      typingDelays: { global: 2000 }, // Initialize with 2000ms default instead of 0
+      typingDelays: { global: 1000 }, // Initialize with 1000ms default
       gameStartTime: Date.now(),
       notifications: []
     };
@@ -134,57 +134,52 @@ export class GameEngine {
 
   // Core game functions
   processChoice(contactName: string, choiceIndex: number): void {
-    const contactData = this.getContactData(contactName);
-    if (!contactData) {
-      return;
-    }
+    const contact = this.getContactData(contactName);
+    if (!contact) return;
 
-    const currentRound = this.state.currentRounds[contactName];
-    if (!currentRound) {
-      return;
-    }
+    const currentRound = this.getCurrentRound(contactName);
+    const round = this.getCurrentRoundData(contactName);
     
-    const round = contactData.rounds[currentRound];
     if (!round || !round.choices || choiceIndex >= round.choices.length) {
       return;
     }
 
     const choice = round.choices[choiceIndex];
+    const targetRoundName = choice.targetRound;
     
-    // Add player message first
-    this.addMessage(contactName, choice.text, true);
-
-    // Execute embedded action if present - as a player action
+    // Extract round number from target round name
+    const roundMatch = targetRoundName.match(/(\d+\.\d+)/);
+    if (!roundMatch) return;
+    
+    const finalRoundNumber = roundMatch[1];
+    
+    // Find the target round in the contact's rounds
+    const contactData = this.getContactData(contactName);
+    if (!contactData) return;
+    
+    const targetRound = contactData.rounds[finalRoundNumber];
+    if (!targetRound) return;
+    
+    // Execute actions from the target round
+    if (targetRound.actions && targetRound.actions.length > 0) {
+      this.executeActions(targetRound.actions, contactName);
+    }
+    
+    // Update current round
+    this.state.currentRounds[contactName] = finalRoundNumber;
+    
+    // Queue response message if there's a passage
+    if (targetRound.passage) {
+      this.queueResponseMessage(contactName, targetRound.passage);
+    }
+    
+    // Execute embedded action if present
     if (choice.embeddedAction) {
       this.executeEmbeddedAction(choice.embeddedAction, contactName);
     }
-
-    // Extract target round number from the target round name
-    const targetRoundName = choice.targetRound;
-    const roundMatch = targetRoundName.match(/(?:[^-]+)-Round-(\d+(?:\.\d+)?)/);
-    if (roundMatch) {
-      const roundNumber = roundMatch[1];
-      // Keep the full round number format
-      const finalRoundNumber = roundNumber;
-      
-      // Update current round
-      this.state.currentRounds[contactName] = finalRoundNumber;
-      this.saveGameState();
-      
-      // Get the target round and process its response
-      const targetRound = contactData.rounds[finalRoundNumber];
-      if (targetRound) {
-        // Execute actions from the target round
-        if (targetRound.actions && targetRound.actions.length > 0) {
-          this.executeActions(targetRound.actions, contactName);
-        }
-        
-        // Queue the response message
-        if (targetRound.passage && targetRound.passage.trim()) {
-          this.queueResponseMessage(contactName, targetRound.passage);
-        }
-      }
-    }
+    
+    // Save game state
+    this.saveGameState();
   }
 
   private findResponseForChoice(contact: Contact, choice: Choice, currentRound: string): string | null {
@@ -293,7 +288,7 @@ export class GameEngine {
         this.handleTriggerEmergencyCall(action);
         break;
       default:
-        console.warn(`Unknown action type: ${action.type}`);
+        break;
     }
   }
 
@@ -316,7 +311,6 @@ export class GameEngine {
     } else if (action.parameters.character) {
       contactToUnlock = action.parameters.character as string;
     } else {
-      console.warn('unlock_contact action missing contact name');
       return;
     }
     
@@ -342,17 +336,25 @@ export class GameEngine {
     const contactName = this.getCurrentContactFromAction(action);
     if (contactName) {
       // Only execute end_thread if the thread is not already locked
+      // AND if it wasn't just unlocked in this same action sequence
       if (this.state.threadStates[contactName] !== 'locked') {
-        this.state.threadStates[contactName] = 'locked';
-        this.events.onThreadStateChanged(contactName, 'locked');
+        // Check if this thread was just unlocked in the current action sequence
+        // by looking at the current round - if it's a .0 round, it was just unlocked
+        const currentRound = this.state.currentRounds[contactName];
+        const isJustUnlocked = currentRound && currentRound.endsWith('.0');
         
-        // Parse the parameter to determine if we should show the end message
-        // end_thread:0 = no message, end_thread:1 = show message
-        const showMessage = action.parameters.showMessage !== undefined ? Boolean(action.parameters.showMessage) : true;
-        
-        // Set flag to add end thread message after response (only if showMessage is true)
-        this.pendingEndThread = true;
-        this.pendingEndThreadShowMessage = showMessage;
+        if (!isJustUnlocked) {
+          this.state.threadStates[contactName] = 'locked';
+          this.events.onThreadStateChanged(contactName, 'locked');
+          
+          // Parse the parameter to determine if we should show the end message
+          // end_thread:0 = no message, end_thread:1 = show message
+          const showMessage = action.parameters.showMessage !== undefined ? Boolean(action.parameters.showMessage) : true;
+          
+          // Set flag to add end thread message after response (only if showMessage is true)
+          this.pendingEndThread = true;
+          this.pendingEndThreadShowMessage = showMessage;
+        }
       }
     }
   }
@@ -722,26 +724,35 @@ export class GameEngine {
     // Mark that we have a pending response for this contact
     this.pendingResponses.add(contactName);
     
-    // Add typing indicator first
-    setTimeout(() => {
-      this.addMessage(contactName, '', false, 'typing');
-      
-      // Then add the actual response after a short delay
+    if (delay > 0) {
+      // Add typing indicator first
       setTimeout(() => {
-        // Remove the typing indicator by replacing it with the actual message
-        const messages = this.state.messageHistory[contactName] || [];
-        if (messages.length > 0 && messages[messages.length - 1].type === 'typing') {
-          messages.pop(); // Remove the typing indicator
-        }
+        this.addMessage(contactName, '', false, 'typing');
         
-        // Add the response message
-        this.addMessage(contactName, responseText, false);
-        this.pendingResponses.delete(contactName);
-        
-        // Process pending actions in sequence
-        this.processPendingActions(contactName);
-      }, 1000); // Show typing for 1 second before response
-    }, delay);
+        // Then add the actual response after the same delay
+        setTimeout(() => {
+          // Remove the typing indicator by replacing it with the actual message
+          const messages = this.state.messageHistory[contactName] || [];
+          if (messages.length > 0 && messages[messages.length - 1].type === 'typing') {
+            messages.pop(); // Remove the typing indicator
+          }
+          
+          // Add the response message
+          this.addMessage(contactName, responseText, false);
+          this.pendingResponses.delete(contactName);
+          
+          // Process pending actions in sequence
+          this.processPendingActions(contactName);
+        }, delay);
+      }, delay);
+    } else {
+      // No delay - add response immediately
+      this.addMessage(contactName, responseText, false);
+      this.pendingResponses.delete(contactName);
+      
+      // Process pending actions in sequence
+      this.processPendingActions(contactName);
+    }
   }
 
   private processPendingActions(contactName: string): void {
@@ -922,7 +933,7 @@ export class GameEngine {
 
   getGlobalTypingDelay(): number {
     const delay = this.state.typingDelays.global;
-    return delay !== undefined ? delay : 2000; // Default to 2000ms if not set
+    return delay !== undefined ? delay : 1000; // Default to 1000ms if not set
   }
 
   hasPendingResponse(contactName: string): boolean {
@@ -972,7 +983,12 @@ export class GameEngine {
   }
 
   private triggerEmergencyCall(): void {
-    // TODO: Implement emergency call sequence
+    // Dispatch event to trigger the 911 call animation
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('call-911-animation', {
+        detail: { timestamp: Date.now() }
+      }));
+    }
   }
 
   private executeEmbeddedAction(action: Action, contactName: string): void {
@@ -1229,8 +1245,9 @@ export class GameEngine {
     const { passage, actions, choices } = tempParser.parseRoundContent(evaluatedContent);
     
     return {
+      ...round,
       passage,
-      actions,
+      actions: actions.length > 0 ? actions : round.actions, // fallback to original actions if none found
       choices
     };
   }
@@ -1268,7 +1285,7 @@ export class GameEngine {
       };
       localStorage.setItem('sms_game_state', JSON.stringify(stateToSave));
     } catch (error) {
-      console.warn('Failed to save game state:', error);
+      // Silent error handling
     }
   }
 
@@ -1324,7 +1341,7 @@ export class GameEngine {
         this.state.typingDelays.global = 2000; // Default to 2 seconds
       }
     } catch (error) {
-      console.warn('Failed to load game state:', error);
+      // Silent error handling
     }
   }
 

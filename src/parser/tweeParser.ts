@@ -354,12 +354,21 @@ export class TweeParser {
   }
 
   private parseAction(actionText: string): Action | null {
-    // Parse action in format: "action_type:parameters"
+    // Parse action in format: "action_type:parameters" or just "action_type" for actions without parameters
     const colonIndex = actionText.indexOf(':');
-    if (colonIndex === -1) return null;
     
-    const actionType = actionText.substring(0, colonIndex).trim();
-    const parameters = actionText.substring(colonIndex + 1).trim();
+    let actionType: string;
+    let parameters: string;
+    
+    if (colonIndex === -1) {
+      // No parameters - entire text is the action type
+      actionType = actionText.trim();
+      parameters = '';
+    } else {
+      // Has parameters
+      actionType = actionText.substring(0, colonIndex).trim();
+      parameters = actionText.substring(colonIndex + 1).trim();
+    }
     
     return this.parseActionWithParameters(actionType, parameters);
   }
@@ -523,7 +532,6 @@ export class TweeParser {
         break;
       
       default:
-        console.warn(`Unknown action type: ${actionType}`);
         return null;
     }
     

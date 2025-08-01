@@ -85,14 +85,10 @@ export default function GamePage() {
       
       // Get the saved script or default to first available script
       const savedScript = getSavedScript();
-      console.log('Available scripts:', scripts);
-      console.log('Saved script:', savedScript);
       
       if (savedScript && scripts.includes(savedScript)) {
-        console.log('Using saved script:', savedScript);
         setCurrentScript(savedScript);
       } else if (scripts.length > 0) {
-        console.log('Using default script:', scripts[0]);
         setCurrentScript(scripts[0]);
         saveScript(scripts[0]); // Save the default script
       }

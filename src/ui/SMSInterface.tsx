@@ -31,8 +31,17 @@ export default function SMSInterface({
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   // Initialize typing delay with the game engine's current value instead of 0
-  const [typingDelay, setTypingDelay] = useState(() => gameEngine.getGlobalTypingDelay());
+  const [typingDelay, setTypingDelay] = useState(() => {
+    const engineDelay = gameEngine.getGlobalTypingDelay();
+    // Force default to 1000ms if it's the old 2000ms value or not set
+    if (engineDelay === 2000 || engineDelay === undefined) {
+      gameEngine.setGlobalTypingDelay(1000);
+      return 1000;
+    }
+    return engineDelay;
+  });
   const [notifications, setNotifications] = useState<GameState['notifications']>(gameEngine.getNotifications());
+  const [show911Animation, setShow911Animation] = useState(false);
 
   // Sync typing delay with game engine on mount and when game engine changes
   useEffect(() => {
@@ -77,6 +86,10 @@ export default function SMSInterface({
       }, 3000);
     };
 
+    const handle911Call = (event: CustomEvent) => {
+      setShow911Animation(true);
+    };
+
     // Set up event listeners
     gameEngine.events.onMessageAdded = handleMessageAdded;
     gameEngine.events.onContactUnlocked = handleContactUnlocked;
@@ -87,6 +100,7 @@ export default function SMSInterface({
     // Set up window event listeners
     window.addEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
     window.addEventListener('notification-added', handleNotificationAdded as EventListener);
+    window.addEventListener('call-911-animation', handle911Call as EventListener);
 
     // Don't auto-select first contact - start on Messages list
     // const unlockedContacts = gameEngine.getUnlockedContacts();
@@ -105,6 +119,7 @@ export default function SMSInterface({
       // Cleanup window event listeners
       window.removeEventListener('character-unlocked', handleCharacterUnlocked as EventListener);
       window.removeEventListener('notification-added', handleNotificationAdded as EventListener);
+      window.removeEventListener('call-911-animation', handle911Call as EventListener);
     };
   }, [gameEngine, selectedContact]);
 
@@ -119,6 +134,9 @@ export default function SMSInterface({
 
   const handleContactSelect = (contactName: string) => {
     setSelectedContact(contactName);
+    
+    // Mark contact as viewed when player enters the chat
+    gameEngine.markContactAsViewed(contactName);
     
     // Get the current round for this contact
     gameEngine.getCurrentRound(contactName);
@@ -376,14 +394,6 @@ export default function SMSInterface({
                      >
                        Lock Threads for Testing
                      </button>
-                     <button 
-                       onClick={() => {
-                         gameEngine.unlockContact('Eli Mercer');
-                       }}
-                       className="w-full px-3 py-2 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
-                     >
-                       Unlock Eli
-                     </button>
                 </div>
               </div>
               <div>
@@ -496,6 +506,7 @@ export default function SMSInterface({
                             onChoiceSelect={handleChoiceSelect}
                             onUnlockContactClick={handleUnlockContactClick}
                             onBack={handleBackToMessages}
+                            show911Animation={show911Animation}
                           />
                         );
                      })()}

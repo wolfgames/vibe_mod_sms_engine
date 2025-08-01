@@ -16,6 +16,7 @@ interface ConversationProps {
   onChoiceSelect: (choiceIndex: number) => void;
   onUnlockContactClick: (contactName: string) => void;
   onBack?: () => void;
+  show911Animation?: boolean;
 }
 
 export default function Conversation({
@@ -27,12 +28,12 @@ export default function Conversation({
   messages,
   onChoiceSelect,
   onUnlockContactClick,
-  onBack
+  onBack,
+  show911Animation: propShow911Animation
 }: ConversationProps) {
   
 
   const [showMap, setShowMap] = useState(false);
-  const [show911Animation, setShow911Animation] = useState(false);
   const [showEnlargedImage, setShowEnlargedImage] = useState(false);
   const [enlargedImageSrc, setEnlargedImageSrc] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -49,13 +50,37 @@ export default function Conversation({
   }, []);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const messagesContainer = messagesEndRef.current?.parentElement;
+    if (messagesContainer) {
+      // Calculate bottom space more accurately
+      const inputHeight = 80; // Approximate height of input area
+      const choiceHeight = showChoices ? 120 : 0; // Approximate height of choice buttons
+      const totalBottomSpace = inputHeight + choiceHeight;
+      
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        // Scroll to bottom with proper spacing
+        const scrollPosition = messagesContainer.scrollHeight - messagesContainer.clientHeight + totalBottomSpace;
+        messagesContainer.scrollTop = scrollPosition;
+        
+        // Double-check after a short delay to ensure it worked
+        setTimeout(() => {
+          const currentScrollTop = messagesContainer.scrollTop;
+          const expectedScrollTop = messagesContainer.scrollHeight - messagesContainer.clientHeight + totalBottomSpace;
+          
+          // If we're not at the bottom, force it
+          if (Math.abs(currentScrollTop - expectedScrollTop) > 10) {
+            messagesContainer.scrollTop = expectedScrollTop;
+          }
+        }, 100);
+      });
+    }
   };
 
   useEffect(() => {
     // Scroll to bottom whenever messages change
     scrollToBottom();
-  }, [messages]);
+  }, [messages, showChoices]);
 
   // Additional scroll effect for when new messages are added
   useEffect(() => {
@@ -64,20 +89,16 @@ export default function Conversation({
     }, 100); // Small delay to ensure DOM is updated
     
     return () => clearTimeout(timer);
-  }, [messages.length]);
+  }, [messages.length, showChoices]);
 
-  // Listen for 911 call animation event
+  // Force scroll to bottom when contact changes (for unlocked threads)
   useEffect(() => {
-    const handle911Call = (event: CustomEvent) => {
-      setShow911Animation(true);
-    };
-
-    window.addEventListener('call-911-animation', handle911Call as EventListener);
+    const timer = setTimeout(() => {
+      scrollToBottom();
+    }, 200); // Longer delay for contact changes
     
-    return () => {
-      window.removeEventListener('call-911-animation', handle911Call as EventListener);
-    };
-  }, []);
+    return () => clearTimeout(timer);
+  }, [contactName]);
 
   // Initial scroll to bottom when component mounts
   useEffect(() => {
@@ -87,7 +108,7 @@ export default function Conversation({
   // Scroll to bottom when contact changes
   useEffect(() => {
     scrollToBottom();
-  }, [contactName]);
+  }, [contactName, showChoices]);
 
   const handleInputClick = () => {
     // Check if thread has ended by looking for thread ended message
@@ -102,12 +123,26 @@ export default function Conversation({
       setTimeout(() => {
         scrollToBottom();
       }, 50);
+      
+      // Additional scroll after a longer delay to ensure it works for unlocked threads
+      setTimeout(() => {
+        scrollToBottom();
+      }, 150);
     }
   };
 
   const handleChoiceSelect = (choiceIndex: number) => {
     onChoiceSelect(choiceIndex);
     setShowChoices(false);
+    // Scroll to bottom after choice is made
+    setTimeout(() => {
+      scrollToBottom();
+    }, 50);
+    
+    // Additional scroll after a longer delay to ensure it works for unlocked threads
+    setTimeout(() => {
+      scrollToBottom();
+    }, 150);
   };
 
   const handleBackdropClick = () => {
@@ -143,8 +178,8 @@ export default function Conversation({
     <div className="w-full h-full bg-black flex flex-col">
       {/* 911 Call Animation */}
       <Call911Animation
-        isVisible={show911Animation}
-        onComplete={() => setShow911Animation(false)}
+        isVisible={propShow911Animation || false}
+        onComplete={() => {}} // Don't call onComplete - let it stay on
         duration={5000}
       />
       
@@ -224,7 +259,7 @@ export default function Conversation({
             )}
             
             {/* Regular contact messages */}
-            {!msg.isFromPlayer && !msg.isLocationPin && !msg.isThreadEnded && msg.type !== 'typing' && msg.type !== 'unlock_contact' && (
+            {!msg.isFromPlayer && !msg.isLocationPin && !msg.isThreadEnded && msg.type !== 'typing' && msg.type !== 'unlock_contact' && msg.type !== 'photo' && (
               <div className="flex items-end gap-2">
                 <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
                   <span className="text-white font-bold text-sm">
@@ -251,6 +286,27 @@ export default function Conversation({
                     </button>
                   )}
                 </div>
+              </div>
+            )}
+            
+            {/* Photo messages - show only image without text */}
+            {!msg.isFromPlayer && msg.type === 'photo' && (
+              <div className="flex items-end gap-2">
+                <div className={`w-8 h-8 ${getAvatar(contactName)} rounded-full flex items-center justify-center`}>
+                  <span className="text-white font-bold text-sm">
+                    {contactName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <button
+                  className="w-32 h-32 rounded-lg overflow-hidden border border-gray-400 bg-black/20 block"
+                  onClick={() => handleImageClick(msg.image || msg.mediaUrl || '')}
+                >
+                  <img
+                    src={msg.image && msg.image.startsWith('/') ? msg.image : `/${msg.image || msg.mediaUrl || ''}`}
+                    alt="photo"
+                    className="object-cover w-full h-full"
+                  />
+                </button>
               </div>
             )}
             
@@ -332,10 +388,24 @@ export default function Conversation({
             )}
             
             {/* Player messages */}
-            {msg.isFromPlayer && !msg.isLocationPin && (
+            {msg.isFromPlayer && !msg.isLocationPin && msg.type !== 'photo' && (
               <div className="bg-blue-500 text-white rounded-2xl rounded-br-none px-4 py-2 max-w-[200px] text-sm shadow">
                 {msg.text}
               </div>
+            )}
+            
+            {/* Player photo messages - show only image without text */}
+            {msg.isFromPlayer && msg.type === 'photo' && (
+              <button
+                className="w-32 h-32 rounded-lg overflow-hidden border border-gray-400 bg-black/20 block"
+                onClick={() => handleImageClick(msg.image || msg.mediaUrl || '')}
+              >
+                <img
+                  src={msg.image && msg.image.startsWith('/') ? msg.image : `/${msg.image || msg.mediaUrl || ''}`}
+                  alt="photo"
+                  className="object-cover w-full h-full"
+                />
+              </button>
             )}
             
             {/* Player location messages */}

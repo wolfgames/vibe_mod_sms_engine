@@ -282,12 +282,6 @@ Hmm.. nothing comes to mind.  Sorry.
 [Action: end_thread:1]
 
 
-:: Maya Round-8.1 [Maya] {"position":"2475,575","size":"100,100"}
-No problem. Hope you find her.
-
-[Action: end_thread:1]
-
-
 :: Maya-Round-1.0 [Maya player_starts] {"position":"1200,700","size":"100,100"}
 [[Hi, sorry to bother you, I have a question|Maya-Round-2.1]]
 
@@ -410,5 +404,11 @@ Always the same: 0402. My birthday. She was weirdly sentimental.
 
 [Action: set_variable:hasCode,true]
 
-[[Thanks, that helps a lot.|Maya Round-8.1]]
-[[That's perfect, thanks.|Maya Round-8.1]]
+[[Thanks, that helps a lot.|Maya-Round-8.1]]
+[[That's perfect, thanks.|Maya-Round-8.1]]
+
+
+:: Maya-Round-8.1 [Maya] {"position":"2475,575","size":"100,100"}
+No problem. Hope you find her.
+
+[Action: end_thread:1]
